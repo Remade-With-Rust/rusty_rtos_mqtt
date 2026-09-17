@@ -4,9 +4,9 @@
 [![docs.rs](https://docs.rs/rusty_rtos_mqtt/badge.svg)](https://docs.rs/rusty_rtos_mqtt)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-A `no_std` MQTT publish state machine, fixed-header codec and MQTT 5 property
-primitives — three proven slices of the Kairos remake of coreMQTT.
-MIT OR Apache-2.0.
+A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
+primitives and outgoing-packet writers — four proven slices of the Kairos
+remake of coreMQTT. MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
 v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
@@ -26,14 +26,18 @@ lives.
   user-property reads every property in every packet goes through — over 104
   trace lines and a 6,480-call sweep, comparing the cursor and the budget after
   every read, not just the answer.
+- **Proven**: the fixed-header writers for every outgoing packet type, byte for
+  byte, with an **exhaustive sweep of the CONNECT flags byte** — the one byte
+  that packs six independent decisions and where a wrong bit reads like a
+  network fault.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The packet bodies —
-CONNECT, PUBLISH, SUBSCRIBE and the property *tables* that sit on top of the
-primitives — and the connection state machine (`core_mqtt.c`, 5,618 lines) are
-**not written**. This crate can recognise a packet arriving, read its properties
-and track what is in flight; it cannot yet build one.
+**Known gaps, and they are still most of coreMQTT.** The packet *bodies* — the
+payloads that follow these headers, the size calculators that precede them, and
+the property tables that sit on top of the primitives — and the connection state
+machine (`core_mqtt.c`, 5,618 lines) are **not written**. This crate has the
+pieces; it does not yet put a packet together.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -52,11 +56,13 @@ flashed" means no chip has run it.
 
 ## Status
 
-**Three slices built and proven; the rest of coreMQTT is not.** 413 trace lines
-agree with `core_mqtt_state.c`, 6,291,456 calls with the fixed-header codec, and
-104 lines plus a 6,480-call sweep with the MQTT 5 property primitives — all at
-the pinned v5.0.2. **11.2 % of the library.** 25 tests. This crate can recognise
-a packet arriving and read its properties; it cannot yet build one.
+**Four slices built and proven; the rest of coreMQTT is not.** 413 trace lines
+agree with `core_mqtt_state.c`, 6,291,456 calls with the fixed-header codec, 104
+lines plus a 6,480-call sweep with the MQTT 5 property primitives, and 51 lines
+plus a 1,536-call sweep with the outgoing-packet writers — all at the pinned
+v5.0.2. **12.4 % of the library.** 32 tests. This crate can recognise a packet
+arriving, read its properties and write any outgoing fixed header; it cannot yet
+assemble a whole packet.
 
 ## What it is
 
@@ -238,6 +244,58 @@ There is a test for it, and it is the second instance of the category the fixed
 header found: a differential proves we match the C's *answers*, and says nothing
 about what the C does on inputs that violate its own preconditions.
 
+## The fixed-header writers
+
+**51 trace lines plus a 1,536-call CONNECT sweep agree with
+`core_mqtt_serializer_private.c`**, byte for byte.
+
+The property primitives are the reading side of the primitive layer. These five
+functions are the writing side: the fixed header of every outgoing packet an
+MQTT client sends — CONNECT, SUBSCRIBE, UNSUBSCRIBE, DISCONNECT and the publish
+acknowledgements. They validate nothing and keep no state, which makes them
+exactly the sort of code where a transcription is confidently and quietly wrong.
+
+### One byte does most of the work
+
+`serializeConnectFixedHeader` packs six independent decisions into a single
+flags byte: clean session, will present, will QoS, will retain, password
+present, username present. Get a bit position wrong and the broker rejects a
+packet that looks fine in a hex dump, in a way that reads like a network fault.
+
+So the sweep is **exhaustive over every combination** — 2 × 2 × 3 × 2 × 2 × 2
+settings across four keep-alive values and four remaining lengths, 1,536 calls,
+compared by an FNV-1a digest, with eight combinations printed in full so a
+mismatch has somewhere to start. A standing test asserts every non-reserved bit
+is reachable, and a unit test asserts bit 0 — reserved — is never set.
+
+**Poison-proven on eight behaviours, seven caught:** swapping the username and
+password flags, will QoS 2 setting the QoS 1 bit, clean session on the reserved
+bit, a little-endian keep alive, a DISCONNECT that always writes a reason code,
+UNSUBSCRIBE written with the SUBSCRIBE type byte, and a protocol name without
+its length prefix.
+
+### A poison that found a gap in the gate
+
+Making `serialize_disconnect_fixed` always write a reason code — so it writes
+one byte **beyond the length it returns** — passed every test here at first,
+*including* the byte-for-byte differential. The differential only ever looks at
+`buffer[..n]`, so a byte written past `n` is invisible to it.
+
+A caller that packed something after the header would have had it silently
+clobbered. **"Wrote the right bytes" and "wrote only those bytes" are two
+claims, and a trace of the output can only make the first.** A test now fills
+the buffer and asserts nothing past the reported length was touched, for all
+five writers at seven remaining lengths; it catches that poison.
+
+### A poison that was an equivalence
+
+Writing the will QoS as a shifted number rather than two independent flags
+changes nothing — the two bits are *adjacent* and the legal QoS values are 0, 1
+and 2, so `qos << WILL_QOS1` and the two-flag form produce identical bytes. The
+C's two-flag form is kept because it says what the specification says, and a
+unit test pins the adjacency, since moving either constant would part the two
+forms with nothing else failing.
+
 ## The gate
 
 This module takes no bytes from the network, so it looks safer than a parser. It
@@ -255,6 +313,7 @@ each one indexes a record array.
 | arbitrary property sections | 100,000 readers over 0..24 bytes with budgets up to 40 — routinely larger than the buffer, which is what an attacker sends — asserting the cursor never passes what exists |
 | arbitrary property lengths | 200,000 buffers of 0..7 bytes through the property length decoder |
 | encoding a string anywhere | 50,000 encodes with a claimed length independent of the source |
+| **writing past the reported length** | all five writers at seven remaining lengths, into a filled buffer, asserting no byte beyond the returned count was touched — the claim a trace of the output cannot make |
 
 A duplicate packet id in the records would make two messages share one
 handshake, which is why that invariant is checked after every operation rather

@@ -35,6 +35,9 @@ pub mod header;
 /// The MQTT 5 property primitives: bounded reads out of a packet.
 pub mod property;
 
+/// The fixed header of every outgoing MQTT packet.
+pub mod writer;
+
 pub use header::{
     HeaderError, MAX_REMAINING_LENGTH, PacketHeader, REMAINING_LENGTH_INVALID,
     encode_variable_length, incoming_packet_valid, process_incoming_packet_type_and_length,
@@ -44,4 +47,8 @@ pub use property::{PropertyError, PropertyReader, decode_variable_length, encode
 pub use state::{
     AckType, Cursor, Operation, PACKET_ID_INVALID, PublishRecords, PublishState, QoS, Record,
     StateError, calculate_state_ack, calculate_state_publish,
+};
+pub use writer::{
+    ConnectInfo, PINGREQ, VERSION_5, WillInfo, serialize_ack_fixed, serialize_connect_fixed_header,
+    serialize_disconnect_fixed, serialize_subscribe_header, serialize_unsubscribe_header,
 };

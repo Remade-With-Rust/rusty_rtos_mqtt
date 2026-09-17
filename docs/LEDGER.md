@@ -65,6 +65,28 @@ larger than the bytes received makes the C read past the buffer. Ours checks the
 budget first, exactly as the C does, then takes the slice with `get`. Second
 instance of the category the fixed header found.
 
+## Conformance (2026-09-17) — the fixed-header writers
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **51 / 51** | `cargo test -p rusty_rtos_mqtt-core --test writer`, byte for byte. C arm: `oracle/writer_driver.c` driving `core_mqtt_serializer_private.c` verbatim from v5.0.2 at `04845c6a`. |
+| CONNECT flag combinations | **1,536** | every combination of clean session, will present, will QoS (3), will retain, username and password, across four keep-alive values and four remaining lengths, compared by an FNV-1a digest of the length and the flags byte — with eight printed in full so a mismatch is localisable. |
+| named cases | **7 acks, 12 sub/unsub, 20 disconnects, 8 connects** | each printed with its full output bytes. |
+| poison rows | **8 introduced, 7 caught** | flags swapped, will QoS 2 on the wrong bit, clean session on the reserved bit, a little-endian keep alive, a DISCONNECT that always writes a reason, UNSUBSCRIBE with the SUBSCRIBE type byte, and a protocol name without its length prefix. |
+
+**One poison found a gap in the GATE rather than the code.** Making
+`serialize_disconnect_fixed` always write a reason code — so it writes one byte
+*beyond the length it returns* — passed every test including the byte-for-byte
+differential, because the differential only ever looks at `buffer[..n]`. A
+caller packing something after the header would have had it clobbered. "Wrote
+the right bytes" and "wrote only those bytes" are two claims and a trace can
+only make the first; a test now makes the second, and catches that poison.
+
+**The eighth is an equivalence.** Writing the will QoS as a shifted number
+rather than two flags produces identical bytes, because the two bits are
+adjacent and the legal QoS values are 0, 1 and 2. The C's form is kept and a
+unit test pins the adjacency.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -80,7 +102,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 25 passed, 0 failed (4 unit, 8 gate, 3 state, 5 header, 5 property) |
+| `cargo test -p rusty_rtos_mqtt-core` | 32 passed, 0 failed (6 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -94,13 +116,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_state.c` | 1,206 | **remade and proven** |
 | `core_mqtt_serializer.c`, the fixed-header codec | ~240 | **remade and proven** |
 | `core_mqtt_serializer_private.c`, the property primitives | ~309 | **remade and proven** |
+| `core_mqtt_serializer_private.c`, the fixed-header writers | ~180 | **remade and proven** |
 | `core_mqtt_serializer.c`, the rest | ~5,870 | not written |
-| `core_mqtt_serializer_private.c`, the rest | ~344 | not written |
+| `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **11.2 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **12.4 % remade** |
 
 No speed number and no size number: nothing here has been benchmarked, and
 nothing has run on a chip.

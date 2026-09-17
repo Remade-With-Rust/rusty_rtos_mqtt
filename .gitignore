@@ -19,3 +19,6 @@ oracle/header_driver.pdb
 oracle/property_driver
 oracle/property_driver.exe
 oracle/property_driver.pdb
+oracle/writer_driver
+oracle/writer_driver.exe
+oracle/writer_driver.pdb

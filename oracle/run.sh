@@ -54,3 +54,13 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/property_driver" > "$here/property.trace"
 echo "wrote $(wc -l < "$here/property.trace") lines to $here/property.trace"
+
+# The fixed-header writer differential's C arm.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/writer_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/writer_driver.c"
+
+"$here/writer_driver" > "$here/writer.trace"
+echo "wrote $(wc -l < "$here/writer.trace") lines to $here/writer.trace"
