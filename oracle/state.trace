@@ -1,0 +1,413 @@
+geometry maxrecords=8
+scenario 0 qos0-keeps-no-record
+cfg records 4 4
+cfg ops 3 r:1:0:0 p:1:0:0 p:2:0:1
+op 0 r -> Success
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PublishDone
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 p -> Success PublishDone
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 0
+scenario 1 qos1-outgoing
+cfg records 4 4
+cfg ops 3 r:1:1:0 p:1:1:0 a:1:0:1
+op 0 r -> Success
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PubAckPending
+records out 4 1:1:PubAckPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 a -> Success PublishDone
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 1
+scenario 2 qos2-outgoing
+cfg records 4 4
+cfg ops 5 r:1:2:0 p:1:2:0 a:1:1:1 a:1:2:0 a:1:3:1
+op 0 r -> Success
+records out 4 1:2:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PubRecPending
+records out 4 1:2:PubRecPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 a -> Success PubRelSend
+records out 4 1:2:PubRelSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 3 a -> Success PubCompPending
+records out 4 1:2:PubCompPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 4 a -> Success PublishDone
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 2
+scenario 3 qos1-incoming
+cfg records 4 4
+cfg ops 2 p:5:1:1 a:5:0:0
+op 0 p -> Success PubAckSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:1:PubAckSend 0:0:Null 0:0:Null 0:0:Null
+op 1 a -> Success PublishDone
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 3
+scenario 4 qos2-incoming
+cfg records 4 4
+cfg ops 4 p:5:2:1 a:5:1:0 a:5:2:1 a:5:3:0
+op 0 p -> Success PubRecSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRecSend 0:0:Null 0:0:Null 0:0:Null
+op 1 a -> Success PubRelPending
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRelPending 0:0:Null 0:0:Null 0:0:Null
+op 2 a -> Success PubCompSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubCompSend 0:0:Null 0:0:Null 0:0:Null
+op 3 a -> Success PublishDone
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 4
+scenario 5 reserve-collision
+cfg records 4 4
+cfg ops 3 r:1:1:0 r:1:1:0 r:1:2:0
+op 0 r -> Success
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 r -> StateCollision
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 r -> StateCollision
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 5
+scenario 6 outgoing-records-exhausted
+cfg records 2 2
+cfg ops 3 r:1:1:0 r:2:1:0 r:3:1:0
+op 0 r -> Success
+records out 2 1:1:PublishSend 0:0:Null
+records in 2 0:0:Null 0:0:Null
+op 1 r -> Success
+records out 2 1:1:PublishSend 2:1:PublishSend
+records in 2 0:0:Null 0:0:Null
+op 2 r -> NoMemory
+records out 2 1:1:PublishSend 2:1:PublishSend
+records in 2 0:0:Null 0:0:Null
+end scenario 6
+scenario 7 compaction-preserves-order
+cfg records 4 4
+cfg ops 6 r:1:1:0 r:2:1:0 r:3:1:0 r:4:1:0 x:2:0:0 r:5:1:0
+op 0 r -> Success
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 r -> Success
+records out 4 1:1:PublishSend 2:1:PublishSend 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 r -> Success
+records out 4 1:1:PublishSend 2:1:PublishSend 3:1:PublishSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 3 r -> Success
+records out 4 1:1:PublishSend 2:1:PublishSend 3:1:PublishSend 4:1:PublishSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 4 x -> Success
+records out 4 1:1:PublishSend 0:0:Null 3:1:PublishSend 4:1:PublishSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 5 r -> Success
+records out 4 1:1:PublishSend 3:1:PublishSend 4:1:PublishSend 5:1:PublishSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 7
+scenario 8 pubrec-moves-the-record-to-the-end
+cfg records 4 4
+cfg ops 5 r:1:2:0 p:1:2:0 r:2:2:0 p:2:2:0 a:1:1:1
+op 0 r -> Success
+records out 4 1:2:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PubRecPending
+records out 4 1:2:PubRecPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 r -> Success
+records out 4 1:2:PubRecPending 2:2:PublishSend 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 3 p -> Success PubRecPending
+records out 4 1:2:PubRecPending 2:2:PubRecPending 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 4 a -> Success PubRelSend
+records out 4 0:0:Null 2:2:PubRecPending 1:2:PubRelSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 8
+scenario 9 resend-cursors
+cfg records 4 4
+cfg ops 13 r:1:1:0 p:1:1:0 r:2:2:0 p:2:2:0 r:3:2:0 p:3:2:0 a:3:1:1 P:0:0:0 P:0:0:0 P:0:0:0 C:0:0:0 R:0:0:0 R:0:0:0
+op 0 r -> Success
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PubAckPending
+records out 4 1:1:PubAckPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 r -> Success
+records out 4 1:1:PubAckPending 2:2:PublishSend 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 3 p -> Success PubRecPending
+records out 4 1:1:PubAckPending 2:2:PubRecPending 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 4 r -> Success
+records out 4 1:1:PubAckPending 2:2:PubRecPending 3:2:PublishSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 5 p -> Success PubRecPending
+records out 4 1:1:PubAckPending 2:2:PubRecPending 3:2:PubRecPending 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 6 a -> Success PubRelSend
+records out 4 1:1:PubAckPending 2:2:PubRecPending 3:2:PubRelSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 7 P -> 1 cursor=1
+records out 4 1:1:PubAckPending 2:2:PubRecPending 3:2:PubRelSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 8 P -> 2 cursor=2
+records out 4 1:1:PubAckPending 2:2:PubRecPending 3:2:PubRelSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 9 P -> 0 cursor=4
+records out 4 1:1:PubAckPending 2:2:PubRecPending 3:2:PubRelSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 10 C -> cursor=0
+records out 4 1:1:PubAckPending 2:2:PubRecPending 3:2:PubRelSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 11 R -> 3 PubRelSend cursor=3
+records out 4 1:1:PubAckPending 2:2:PubRecPending 3:2:PubRelSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 12 R -> 0 Null cursor=4
+records out 4 1:1:PubAckPending 2:2:PubRecPending 3:2:PubRelSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 9
+scenario 10 duplicate-incoming-qos2-publish
+cfg records 4 4
+cfg ops 4 p:5:2:1 a:5:1:0 p:5:2:1 a:5:1:0
+op 0 p -> Success PubRecSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRecSend 0:0:Null 0:0:Null 0:0:Null
+op 1 a -> Success PubRelPending
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRelPending 0:0:Null 0:0:Null 0:0:Null
+op 2 p -> StateCollision Null
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRelPending 0:0:Null 0:0:Null 0:0:Null
+op 3 a -> Success PubRelPending
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRelPending 0:0:Null 0:0:Null 0:0:Null
+end scenario 10
+scenario 11 duplicate-pubrel
+cfg records 4 4
+cfg ops 4 p:5:2:1 a:5:1:0 a:5:2:1 a:5:2:1
+op 0 p -> Success PubRecSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRecSend 0:0:Null 0:0:Null 0:0:Null
+op 1 a -> Success PubRelPending
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRelPending 0:0:Null 0:0:Null 0:0:Null
+op 2 a -> Success PubCompSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubCompSend 0:0:Null 0:0:Null 0:0:Null
+op 3 a -> Success PubCompSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubCompSend 0:0:Null 0:0:Null 0:0:Null
+end scenario 11
+scenario 12 resending-a-publish-keeps-its-state
+cfg records 4 4
+cfg ops 3 r:1:1:0 p:1:1:0 p:1:1:0
+op 0 r -> Success
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PubAckPending
+records out 4 1:1:PubAckPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 p -> Success PubAckPending
+records out 4 1:1:PubAckPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 12
+scenario 13 illegal-transitions
+cfg records 4 4
+cfg ops 3 r:1:1:0 a:1:1:1 p:1:2:0
+op 0 r -> Success
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 a -> IllegalState Null
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 p -> BadParameter Null
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 13
+scenario 14 ack-without-a-record
+cfg records 4 4
+cfg ops 2 a:9:0:1 a:9:2:1
+op 0 a -> BadResponse Null
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 a -> BadResponse Null
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 14
+scenario 15 removing-records
+cfg records 4 4
+cfg ops 4 x:1:0:0 r:1:1:0 x:1:0:0 x:1:0:0
+op 0 x -> BadParameter
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 r -> Success
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 x -> Success
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 3 x -> BadParameter
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 15
+scenario 16 packet-id-zero
+cfg records 4 4
+cfg ops 3 r:0:1:0 p:0:1:0 a:0:0:1
+op 0 r -> BadParameter
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> BadParameter Null
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 a -> BadParameter Null
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 16
+scenario 17 one-record-only
+cfg records 1 1
+cfg ops 4 r:1:1:0 r:2:1:0 x:1:0:0 r:2:1:0
+op 0 r -> Success
+records out 1 1:1:PublishSend
+records in 1 0:0:Null
+op 1 r -> NoMemory
+records out 1 1:1:PublishSend
+records in 1 0:0:Null
+op 2 x -> Success
+records out 1 0:0:Null
+records in 1 0:0:Null
+op 3 r -> Success
+records out 1 2:1:PublishSend
+records in 1 0:0:Null
+end scenario 17
+scenario 18 incoming-records-exhausted
+cfg records 4 2
+cfg ops 3 p:1:2:1 p:2:2:1 p:3:2:1
+op 0 p -> Success PubRecSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 2 1:2:PubRecSend 0:0:Null
+op 1 p -> Success PubRecSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 2 1:2:PubRecSend 2:2:PubRecSend
+op 2 p -> NoMemory Null
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 2 1:2:PubRecSend 2:2:PubRecSend
+end scenario 18
+scenario 19 pubrec-reordering-on-a-full-array
+cfg records 4 4
+cfg ops 14 r:1:2:0 p:1:2:0 r:2:2:0 p:2:2:0 r:3:2:0 p:3:2:0 r:4:2:0 p:4:2:0 a:1:1:1 a:2:1:1 C:0:0:0 R:0:0:0 R:0:0:0 R:0:0:0
+op 0 r -> Success
+records out 4 1:2:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PubRecPending
+records out 4 1:2:PubRecPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 r -> Success
+records out 4 1:2:PubRecPending 2:2:PublishSend 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 3 p -> Success PubRecPending
+records out 4 1:2:PubRecPending 2:2:PubRecPending 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 4 r -> Success
+records out 4 1:2:PubRecPending 2:2:PubRecPending 3:2:PublishSend 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 5 p -> Success PubRecPending
+records out 4 1:2:PubRecPending 2:2:PubRecPending 3:2:PubRecPending 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 6 r -> Success
+records out 4 1:2:PubRecPending 2:2:PubRecPending 3:2:PubRecPending 4:2:PublishSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 7 p -> Success PubRecPending
+records out 4 1:2:PubRecPending 2:2:PubRecPending 3:2:PubRecPending 4:2:PubRecPending
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 8 a -> Success PubRelSend
+records out 4 2:2:PubRecPending 3:2:PubRecPending 4:2:PubRecPending 1:2:PubRelSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 9 a -> Success PubRelSend
+records out 4 3:2:PubRecPending 4:2:PubRecPending 1:2:PubRelSend 2:2:PubRelSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 10 C -> cursor=0
+records out 4 3:2:PubRecPending 4:2:PubRecPending 1:2:PubRelSend 2:2:PubRelSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 11 R -> 1 PubRelSend cursor=3
+records out 4 3:2:PubRecPending 4:2:PubRecPending 1:2:PubRelSend 2:2:PubRelSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 12 R -> 2 PubRelSend cursor=4
+records out 4 3:2:PubRecPending 4:2:PubRecPending 1:2:PubRelSend 2:2:PubRelSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 13 R -> 0 Null cursor=4
+records out 4 3:2:PubRecPending 4:2:PubRecPending 1:2:PubRelSend 2:2:PubRelSend
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 19
+scenario 20 ack-type-out-of-range
+cfg records 4 4
+cfg ops 3 r:1:1:0 p:1:1:0 a:1:4:1
+op 0 r -> Success
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PubAckPending
+records out 4 1:1:PubAckPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 a -> BadParameter Null
+records out 4 1:1:PubAckPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 20
+scenario 21 packet-id-reuse-after-completion
+cfg records 4 4
+cfg ops 5 p:5:2:1 a:5:1:0 a:5:2:1 a:5:3:0 p:5:2:1
+op 0 p -> Success PubRecSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRecSend 0:0:Null 0:0:Null 0:0:Null
+op 1 a -> Success PubRelPending
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRelPending 0:0:Null 0:0:Null 0:0:Null
+op 2 a -> Success PubCompSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubCompSend 0:0:Null 0:0:Null 0:0:Null
+op 3 a -> Success PublishDone
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 4 p -> Success PubRecSend
+records out 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+records in 4 5:2:PubRecSend 0:0:Null 0:0:Null 0:0:Null
+end scenario 21
+scenario 22 pubcomp-for-a-qos1-publish
+cfg records 4 4
+cfg ops 3 r:1:1:0 p:1:1:0 a:1:3:1
+op 0 r -> Success
+records out 4 1:1:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PubAckPending
+records out 4 1:1:PubAckPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 a -> IllegalState Null
+records out 4 1:1:PubAckPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 22
+scenario 23 puback-for-a-qos2-publish
+cfg records 4 4
+cfg ops 3 r:1:2:0 p:1:2:0 a:1:0:1
+op 0 r -> Success
+records out 4 1:2:PublishSend 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 1 p -> Success PubRecPending
+records out 4 1:2:PubRecPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+op 2 a -> IllegalState Null
+records out 4 1:2:PubRecPending 0:0:Null 0:0:Null 0:0:Null
+records in 4 0:0:Null 0:0:Null 0:0:Null 0:0:Null
+end scenario 23
+end
