@@ -13,3 +13,6 @@ Thumbs.db
 oracle/state_driver
 oracle/state_driver.exe
 oracle/state_driver.pdb
+oracle/header_driver
+oracle/header_driver.exe
+oracle/header_driver.pdb

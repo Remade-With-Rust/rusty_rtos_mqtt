@@ -4,8 +4,8 @@
 [![docs.rs](https://docs.rs/rusty_rtos_mqtt/badge.svg)](https://docs.rs/rusty_rtos_mqtt)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-A `no_std` MQTT QoS publish state machine, the first slice of the Kairos remake
-of coreMQTT. MIT OR Apache-2.0.
+A `no_std` MQTT publish state machine and fixed-header codec, the first slices
+of the Kairos remake of coreMQTT. MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
 v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
@@ -17,14 +17,18 @@ lives.
   diffed against the C **operation for operation** across 24 scenarios as a
   413-line trace — and that trace compares **both record arrays after every
   operation**, not just the status each call returns.
+- **Proven**: the fixed header — the packet type and the variable-byte
+  remaining length every packet starts with — over **6,291,456 calls**: every
+  one of the 256 type bytes against every length pattern at every claimed
+  length, compared by per-status counts and an FNV-1a digest.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are most of coreMQTT.** The wire serializer
-(`core_mqtt_serializer.c`, 6,110 lines plus 2,056 for MQTT 5 properties) and the
-connection state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This
-crate cannot yet speak to a broker. It tracks what is in flight; something else
-has to put it on the wire.
+**Known gaps, and they are still most of coreMQTT.** The rest of the wire
+serializer — CONNECT, PUBLISH, SUBSCRIBE and the MQTT 5 property codecs — and
+the connection state machine (`core_mqtt.c`, 5,618 lines) are **not written**.
+This crate can recognise a packet arriving and track what is in flight; it
+cannot yet build one.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -43,10 +47,11 @@ flashed" means no chip has run it.
 
 ## Status
 
-**The publish state machine is built and proven; the rest of coreMQTT is not.**
-413 trace lines across 24 scenarios agree with `core_mqtt_state.c` at the pinned
-v5.0.2, comparing both record arrays after every operation. 7 tests. This crate
-cannot yet speak to a broker.
+**Two slices built and proven; the rest of coreMQTT is not.** 413 trace lines
+across 24 scenarios agree with `core_mqtt_state.c`, comparing both record arrays
+after every operation, and 6,291,456 calls agree with the fixed-header codec in
+`core_mqtt_serializer.c` — both at the pinned v5.0.2. 15 tests. This crate can
+recognise a packet arriving; it cannot yet build one.
 
 ## What it is
 
@@ -120,6 +125,52 @@ publish being resent. They are not slack in the table. A test names them, so
 removing one is a failure rather than a silent narrowing of what a session can
 recover from.
 
+## The fixed header
+
+**6,291,456 calls agree with `core_mqtt_serializer.c`** — every one of the 256
+possible type bytes, against every remaining-length byte pattern, at every
+claimed length.
+
+Every MQTT packet begins with one type byte and a **remaining length** encoded
+as one to four bytes, seven bits at a time. It is the first thing a device
+parses off a socket, before it knows what kind of packet it is holding, and it
+is the classic place to attack an MQTT implementation. There are three ways to
+lie about a length and the C refuses all three:
+
+1. **Too many bytes.** The multiplier is checked *before* each byte, so a fifth
+   continuation byte is refused rather than shifted off the top.
+2. **Too large.** Four bytes can express more than the 268,435,455 the
+   specification allows.
+3. **Non-minimal.** `0x80 0x00` decodes to zero, and so does `0x00` — but only
+   the second is minimal. The C rejects the first by comparing the bytes it
+   consumed against the size the answer *should* have taken.
+
+The third is the same shape as the over-long UTF-8 rule `rusty_rtos_json` had to
+get right, and for the same reason: a decoder that accepts non-minimal encodings
+hands an attacker two spellings of one length, which is how a length check one
+layer up gets bypassed.
+
+### Named cases and an exhaustive sweep
+
+The differential does both, deliberately. 30 named cases print every observable,
+so a divergence names itself. The sweep compares per-status **counts** plus an
+FNV-1a **digest** of all 6.29 million answers — exhaustive coverage that a
+reader can still check, where a digest alone would say only that something moved.
+
+**Poison-proven on eight behaviours, all caught first time:** dropping the
+non-minimal check, allowing a fifth length byte, an off-by-one on the
+available-bytes test, a PUBREL without its reserved bit, accepting a
+client-only packet type, an off-by-one in the size helper, the continuation bit
+on the wrong byte, and a header length that omits the type byte.
+
+### A guarantee the C cannot make
+
+`MQTT_ProcessIncomingPacketTypeAndLength` takes a pointer and a count, and
+`pBuffer[ bytesDecoded + 1U ]` trusts the count: an `available` larger than the
+allocation reads whatever is next in memory. Here the count is only ever an
+upper bound on a `get`, so an over-large one produces `NeedMoreBytes` and
+nothing else. There is a test for exactly that.
+
 ## The gate
 
 This module takes no bytes from the network, so it looks safer than a parser. It
@@ -132,6 +183,8 @@ each one indexes a record array.
 | arbitrary operation sequences | 200 seeds x 60 operations over arrays of 1..4, with a four-id space so collisions and reuse happen constantly — which is what a broker replaying a session looks like |
 | well-formedness after every step | no duplicate packet id in either array, no occupied record at QoS 0 or in state `Null`, no empty slot keeping stale fields |
 | cursor termination | both resend cursors must finish; one that failed to advance past a match would spin rather than fail, the same hazard `rusty_rtos_json`'s iterator and `rusty_rtos_sntp`'s retry loops have |
+| arbitrary header bytes | 200,000 buffers of 0..8 bytes with a claimed count of 0..12 — deliberately including counts LARGER than the buffer, which is the shape the C cannot survive |
+| encoding into any buffer | 100,000 lengths into buffers of 0..7 bytes; a refused encode must leave the fill untouched |
 
 A duplicate packet id in the records would make two messages share one
 handshake, which is why that invariant is checked after every operation rather

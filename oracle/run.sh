@@ -28,3 +28,19 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/state_driver" > "$here/state.trace"
 echo "wrote $(wc -l < "$here/state.trace") lines to $here/state.trace"
+
+# The fixed-header differential's C arm. The serializer pulls in its private
+# helpers and the MQTT 5 property codecs.
+ser="$lib/source/core_mqtt_serializer.c"
+priv="$lib/source/core_mqtt_serializer_private.c"
+props="$lib/source/core_mqtt_prop_serializer.c"
+propd="$lib/source/core_mqtt_prop_deserializer.c"
+
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/header_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/header_driver.c"
+
+"$here/header_driver" > "$here/header.trace"
+echo "wrote $(wc -l < "$here/header.trace") lines to $here/header.trace"

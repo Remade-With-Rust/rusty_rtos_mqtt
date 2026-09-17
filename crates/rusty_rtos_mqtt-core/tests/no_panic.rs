@@ -204,3 +204,86 @@ fn the_resend_cursors_always_terminate() {
         }
     }
 }
+
+// ---- the fixed header ----------------------------------------------------
+//
+// The state machine above is driven by packet ids from the broker. THIS is
+// driven by raw bytes off the socket, before anything is known about them, so
+// it is the most exposed code in the package.
+
+use rusty_rtos_mqtt_core::header::{
+    encode_variable_length, process_incoming_packet_type_and_length, variable_length_encoded_size,
+};
+
+/// Arbitrary bytes at arbitrary lengths, with an arbitrary claimed count.
+///
+/// The exhaustive sweep next door covers every type byte against a chosen
+/// alphabet of length bytes. This covers the shapes that alphabet cannot: odd
+/// buffer sizes, and an `available` count that does not match the buffer.
+#[test]
+fn arbitrary_header_bytes_never_panic() {
+    let mut rng = Lcg::new(7);
+
+    for _ in 0..200_000 {
+        let len = (rng.below(9)) as usize;
+        let buffer: Vec<u8> = (0..len).map(|_| (rng.next() >> 16) as u8).collect();
+
+        // Deliberately including counts LARGER than the buffer.
+        let available = (rng.below(12)) as usize;
+
+        let _ = process_incoming_packet_type_and_length(&buffer, available);
+    }
+}
+
+/// A caller who lies about how many bytes arrived must not be able to read
+/// past the buffer.
+///
+/// The C cannot promise this: it is handed a pointer and a count, and
+/// `pBuffer[ bytesDecoded + 1U ]` trusts the count. An `available` larger than
+/// the allocation reads whatever is next in memory. Here the count is only ever
+/// an upper bound on a `get`, so an over-large one produces `NeedMoreBytes` and
+/// nothing else — which is the kind of difference `forbid(unsafe)` is for.
+#[test]
+fn an_over_large_available_count_cannot_read_past_the_buffer() {
+    let buffer = [0xD0u8, 0x80];
+
+    for available in 0..64usize {
+        let result = process_incoming_packet_type_and_length(&buffer, available);
+
+        if available <= buffer.len() {
+            continue;
+        }
+
+        // The header is incomplete and the bytes to finish it do not exist.
+        assert!(
+            result.is_err(),
+            "claiming {available} bytes of a {}-byte buffer was accepted",
+            buffer.len()
+        );
+    }
+}
+
+/// Encoding into a buffer too small answers rather than writing past it.
+#[test]
+fn encoding_into_any_buffer_is_safe() {
+    let mut rng = Lcg::new(8);
+
+    for _ in 0..100_000 {
+        let length = rng.next() % 268_435_456;
+        let size = (rng.below(8)) as usize;
+        let mut buffer = vec![0xAAu8; size];
+
+        let written = encode_variable_length(&mut buffer, length);
+
+        if written == 0 {
+            // Refused, so nothing was written and the fill survives.
+            assert!(
+                buffer.iter().all(|b| *b == 0xAA),
+                "a refused encode still wrote into the buffer"
+            );
+            assert!(size < variable_length_encoded_size(length) as usize);
+        } else {
+            assert_eq!(written, variable_length_encoded_size(length) as usize);
+        }
+    }
+}

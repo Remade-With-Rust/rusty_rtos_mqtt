@@ -1,6 +1,6 @@
 [package]
 name = "rusty_rtos_mqtt"
-description = "The QoS publish state machine of coreMQTT, remade in Rust and diffed against the C operation for operation across 24 scenarios -- record arrays compared, not just statuses. Zero allocation, no_std, forbid(unsafe). The wire serializer and the connection state machine are not written yet."
+description = "Two proven slices of coreMQTT, remade in Rust: the QoS publish state machine (diffed operation for operation, record arrays compared) and the fixed-header codec (diffed over 6,291,456 calls). Zero allocation, no_std, forbid(unsafe). The rest of the wire codec and the connection state machine are not written yet."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

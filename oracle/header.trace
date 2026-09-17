@@ -1,0 +1,55 @@
+geometry cases=30 sizes=16 tails=8
+case 0 nothing-available in 0  -> NoDataAvailable
+case 1 type-byte-only in 1 d0 -> NeedMoreBytes
+case 2 pingresp-zero-length in 2 d000 -> Success d0 0 2
+case 3 puback-two-bytes in 4 40021234 -> Success 40 2 2
+case 4 pubrel-with-bit-set in 4 62021234 -> Success 62 2 2
+case 5 pubrel-without-bit-set in 4 60021234 -> BadResponse
+case 6 connack in 4 20020000 -> Success 20 2 2
+case 7 publish-qos0 in 2 3005 -> Success 30 5 2
+case 8 subscribe-is-not-incoming in 2 8202 -> BadResponse
+case 9 connect-is-not-incoming in 2 1002 -> BadResponse
+case 10 type-zero in 2 0000 -> BadResponse
+case 11 type-0xf0-auth in 2 f000 -> Success f0 0 2
+case 12 len-127-one-byte in 2 d07f -> Success d0 127 2
+case 13 len-128-two-bytes in 3 d08001 -> Success d0 128 3
+case 14 len-16383-two-bytes in 3 d0ff7f -> Success d0 16383 3
+case 15 len-16384-three-bytes in 4 d0808001 -> Success d0 16384 4
+case 16 len-2097151-three-bytes in 4 d0ffff7f -> Success d0 2097151 4
+case 17 len-2097152-four-bytes in 5 d080808001 -> Success d0 2097152 5
+case 18 len-max-268435455 in 5 d0ffffff7f -> Success d0 268435455 5
+case 19 five-byte-length in 6 d0ffffffff7f -> BadResponse
+case 20 non-minimal-zero in 3 d08000 -> BadResponse
+case 21 non-minimal-one in 3 d08100 -> BadResponse
+case 22 non-minimal-127 in 3 d0ff00 -> BadResponse
+case 23 non-minimal-three-byte in 4 d0808000 -> BadResponse
+case 24 continuation-never-ends in 5 d080808080 -> BadResponse
+case 25 truncated-after-type in 1 d08001 -> NeedMoreBytes
+case 26 truncated-mid-length in 2 d08001 -> NeedMoreBytes
+case 27 truncated-three-of-four in 3 d0808001 -> NeedMoreBytes
+case 28 exactly-enough in 3 d08001 -> Success d0 128 3
+case 29 more-than-enough in 4 d000aaaa -> Success d0 0 2
+size 0 0 -> 1 encoded 00
+size 1 1 -> 1 encoded 01
+size 2 126 -> 1 encoded 7e
+size 3 127 -> 1 encoded 7f
+size 4 128 -> 2 encoded 8001
+size 5 129 -> 2 encoded 8101
+size 6 16382 -> 2 encoded fe7f
+size 7 16383 -> 2 encoded ff7f
+size 8 16384 -> 3 encoded 808001
+size 9 16385 -> 3 encoded 818001
+size 10 2097150 -> 3 encoded feff7f
+size 11 2097151 -> 3 encoded ffff7f
+size 12 2097152 -> 4 encoded 80808001
+size 13 2097153 -> 4 encoded 81808001
+size 14 268435454 -> 4 encoded feffff7f
+size 15 268435455 -> 4 encoded ffffff7f
+sweep total 6291456
+sweep Success 1924608
+sweep BadResponse 2028032
+sweep NeedMoreBytes 1290240
+sweep NoDataAvailable 1048576
+sweep other 0
+sweep digest 12aaa517e3b42af3
+end

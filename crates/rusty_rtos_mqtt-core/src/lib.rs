@@ -29,6 +29,14 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// `core_mqtt_state.c`: the QoS publish state machine.
 pub mod state;
 
+/// The MQTT fixed header: a packet type, and a variable-byte length.
+pub mod header;
+
+pub use header::{
+    HeaderError, MAX_REMAINING_LENGTH, PacketHeader, REMAINING_LENGTH_INVALID,
+    encode_variable_length, incoming_packet_valid, process_incoming_packet_type_and_length,
+    variable_length_encoded_size,
+};
 pub use state::{
     AckType, Cursor, Operation, PACKET_ID_INVALID, PublishRecords, PublishState, QoS, Record,
     StateError, calculate_state_ack, calculate_state_publish,

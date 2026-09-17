@@ -37,7 +37,8 @@ registers are touched (that is a port crate).
 
 ## 3. The surface as built
 
-`core_mqtt_state.c`, whole. Nothing else of coreMQTT yet.
+`core_mqtt_state.c`, whole, and the fixed-header codec out of
+`core_mqtt_serializer.c` (~240 lines). Nothing else of coreMQTT yet.
 
 | ours | coreMQTT | note |
 |---|---|---|
@@ -52,9 +53,9 @@ registers are touched (that is a port crate).
 | `AckType` | `MQTTPubAckType_t` | four values and no fifth, so the C's range check has no equivalent |
 | `StateError` | the `MQTTStatus_t` subset this module returns | |
 
-**Not built:** `core_mqtt_serializer.c` (6,110 lines), `core_mqtt_prop_*.c`
-(2,056 for MQTT 5 properties) and `core_mqtt.c` (5,618). This crate cannot yet
-speak to a broker.
+**Not built:** the rest of `core_mqtt_serializer.c` (~5,870 lines),
+`core_mqtt_prop_*.c` (2,056 for MQTT 5 properties) and `core_mqtt.c` (5,618).
+This crate can recognise a packet arriving; it cannot yet build one.
 
 ## 4. Roadmap
 
@@ -62,7 +63,8 @@ speak to a broker.
 |---|---|---|---|
 | scaffold | the shape | K0 | a clean clone builds alone; CI green ✅ |
 | **publish state** | the QoS 1 and 2 delivery state machine | K7 | **413 trace lines across 24 scenarios agree with `core_mqtt_state.c`, both record arrays compared after every operation** ✅ |
-| fixed header + CONNECT/PUBLISH | the wire codec's core | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
+| **fixed header** | the packet type and the variable-byte remaining length | K7 | **6,291,456 calls agree — every type byte against every length pattern at every claimed length, by per-status counts and an FNV-1a digest** ✅ |
+| CONNECT / PUBLISH / SUBSCRIBE | the rest of the wire codec | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
 | MQTT 5 properties | `core_mqtt_prop_*.c` | K7 | the same, over a property corpus |
 | the connection | `core_mqtt.c` over a transport | K7 | a callback-for-callback differential, the shape `rusty_rtos_sntp`'s client established |
 | a real broker | — | K7 | one hour against `rumqttd`, zero lost keep-alives (the family plan's kill test) |
@@ -94,4 +96,6 @@ speak to a broker.
 | 2026-09-17 | **`core_mqtt_state.c` is the first slice, because it is the only self-contained one.** It includes nothing but its own header — no bytes, no transport, no clock — so it can be diffed exactly today, and it is where MQTT's hardest correctness lives. The serializer is four times the size and the connection machine needs it; neither is a unit that can be finished and proven on its own. |
 | 2026-09-17 | **The differential compares the RECORD ARRAYS, not just the statuses.** The relative order of the records is the resend order, which MQTT 5.0 requires, so a status-only comparison would bless a transcription that reordered a session's backlog. |
 | 2026-09-17 | **A poison that did not fire found a workload gap, again.** The ack/QoS sanity check is invisible for most mismatches because the transition would fail anyway; it is visible only for a QoS 1 publish in `PubAckPending` handed a PUBCOMP, where the computed `PublishDone` is a LEGAL transition and the handshake would complete without it. A scenario was added. The mirror case is kept too, so the asymmetry is recorded rather than inferred. |
+| 2026-09-17 | **An exhaustive sweep AND named cases, rather than either alone.** The fixed header's input space is small enough to enumerate — 256 type bytes x an 8-value length alphabet^4 x 6 claimed lengths is 6.29 million calls — so the differential compares per-status COUNTS and an FNV-1a DIGEST of every answer, alongside 30 named cases printed in full. The digest proves agreement everywhere; the named cases say WHERE when it breaks. All eight poisons fired first time, which is the first slice in K7 where none needed a scenario adding — and that is the sweep's doing, not luck. |
+| 2026-09-17 | **The header codec makes a guarantee the C cannot.** `MQTT_ProcessIncomingPacketTypeAndLength` takes a pointer and a count and trusts the count, so an `available` larger than the allocation reads past the buffer. Ours uses the count only as an upper bound on a `get`, and a test pins it. Worth recording because it is the first place in K7 where the Rust is not merely equivalent but strictly safer on the same inputs. |
 | 2026-09-17 | **The `current != new` guard in `update_ack` is an optimisation, not behaviour**, and that is now a unit test rather than a coincidence. The record is deleted only on `PublishDone` or `PubRelSend`, and neither is reachable as a **legal** self-transition. The first version of the test missed the word "legal" and failed, which is the useful half of the story: `calculate_state_ack` will compute `PublishDone` for a record already there, and only `validate_transition_ack` stops it. |
