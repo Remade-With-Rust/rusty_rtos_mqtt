@@ -287,3 +287,89 @@ fn encoding_into_any_buffer_is_safe() {
         }
     }
 }
+
+// ---- the property primitives ---------------------------------------------
+//
+// Every MQTT 5 property is decoded through these, out of bytes the broker
+// chose, bounded by a length the broker also chose. A property length larger
+// than the packet is the ordinary shape of a malformed packet.
+
+use rusty_rtos_mqtt_core::property::{PropertyReader, decode_variable_length, encode_string};
+
+/// Random property sections, with budgets that routinely exceed the buffer.
+#[test]
+fn arbitrary_property_sections_never_panic() {
+    let mut rng = Lcg::new(11);
+
+    for _ in 0..100_000 {
+        let len = rng.below(24) as usize;
+        let bytes: Vec<u8> = (0..len).map(|_| (rng.next() >> 16) as u8).collect();
+
+        // A budget the packet CLAIMS, deliberately often larger than what
+        // arrived -- which is what an attacker sends.
+        let budget = rng.below(40);
+        let mut reader = PropertyReader::new(&bytes, budget);
+
+        for _ in 0..8 {
+            let mut used = rng.below(2) == 1;
+            match rng.below(5) {
+                0 => {
+                    let _ = reader.u8(&mut used);
+                }
+                1 => {
+                    let _ = reader.u16(&mut used);
+                }
+                2 => {
+                    let _ = reader.u32(&mut used);
+                }
+                3 => {
+                    let _ = reader.utf8(&mut used);
+                }
+                _ => {
+                    let _ = reader.user_property();
+                }
+            }
+
+            // The cursor must never run past what exists.
+            assert!(
+                reader.position() <= bytes.len(),
+                "the cursor reached {} in a {}-byte buffer",
+                reader.position(),
+                bytes.len()
+            );
+        }
+    }
+}
+
+/// The property length decoder, over arbitrary bytes.
+#[test]
+fn arbitrary_property_lengths_never_panic() {
+    let mut rng = Lcg::new(12);
+
+    for _ in 0..200_000 {
+        let len = rng.below(7) as usize;
+        let bytes: Vec<u8> = (0..len).map(|_| (rng.next() >> 16) as u8).collect();
+        let _ = decode_variable_length(&bytes);
+    }
+}
+
+/// Encoding a string into a buffer that cannot hold it.
+#[test]
+fn encoding_a_string_into_any_buffer_is_safe() {
+    let mut rng = Lcg::new(13);
+
+    for _ in 0..50_000 {
+        let source_len = rng.below(20) as usize;
+        let source: Vec<u8> = (0..source_len).map(|_| (rng.next() >> 16) as u8).collect();
+        let claimed = rng.below(24) as u16;
+        let dest_len = rng.below(28) as usize;
+        let mut dest = vec![0xAAu8; dest_len];
+
+        let written = encode_string(&mut dest, Some(&source), claimed);
+
+        if written != 0 {
+            assert_eq!(written, usize::from(claimed) + 2);
+            assert!(written <= dest_len);
+        }
+    }
+}

@@ -1,0 +1,104 @@
+geometry maxbuf=64 tails=6
+scenario 0 one-of-each-integer
+cfg buffer 7 11223344556677
+cfg proplen 7
+cfg ops 3 1:0 2:0 4:0
+op 0 1 used=0 -> Success 11 at=1 left=6 used=1
+op 1 2 used=0 -> Success 2233 at=3 left=4 used=1
+op 2 4 used=0 -> Success 44556677 at=7 left=0 used=1
+end scenario 0
+scenario 1 duplicate-property
+cfg buffer 4 11223344
+cfg proplen 4
+cfg ops 2 1:0 1:1
+op 0 1 used=0 -> Success 11 at=1 left=3 used=1
+op 1 1 used=1 -> BadResponse at=1 left=3 used=1
+end scenario 1
+scenario 2 uint32-one-byte-short
+cfg buffer 4 11223344
+cfg proplen 3
+cfg ops 1 4:0
+op 0 4 used=0 -> BadResponse at=0 left=3 used=0
+end scenario 2
+scenario 3 uint16-one-byte-short
+cfg buffer 2 1122
+cfg proplen 1
+cfg ops 1 2:0
+op 0 2 used=0 -> BadResponse at=0 left=1 used=0
+end scenario 3
+scenario 4 uint8-with-no-budget
+cfg buffer 1 11
+cfg proplen 0
+cfg ops 1 1:0
+op 0 1 used=0 -> BadResponse at=0 left=0 used=0
+end scenario 4
+scenario 5 utf8-exact
+cfg buffer 7 00036162630000
+cfg proplen 7
+cfg ops 2 s:0 s:0
+op 0 s used=0 -> Success 2 3 at=5 left=2 used=1
+op 1 s used=0 -> Success 7 0 at=7 left=0 used=1
+end scenario 5
+scenario 6 utf8-claims-more-than-the-budget
+cfg buffer 5 0005616263
+cfg proplen 5
+cfg ops 1 s:0
+op 0 s used=0 -> BadResponse at=2 left=3 used=0
+end scenario 6
+scenario 7 utf8-with-only-one-length-byte
+cfg buffer 1 00
+cfg proplen 1
+cfg ops 1 s:0
+op 0 s used=0 -> BadResponse at=0 left=1 used=0
+end scenario 7
+scenario 8 utf8-claims-65535
+cfg buffer 3 ffff61
+cfg proplen 3
+cfg ops 1 s:0
+op 0 s used=0 -> BadResponse at=2 left=1 used=0
+end scenario 8
+scenario 9 utf8-empty-string
+cfg buffer 4 00000000
+cfg proplen 4
+cfg ops 2 s:0 s:0
+op 0 s used=0 -> Success 2 0 at=2 left=2 used=1
+op 1 s used=0 -> Success 4 0 at=4 left=0 used=1
+end scenario 9
+scenario 10 user-property
+cfg buffer 7 00016b00027631
+cfg proplen 7
+cfg ops 1 u:0
+op 0 u used=0 -> Success 2 1 5 2 at=7 left=0 used=0
+end scenario 10
+scenario 11 user-property-value-overruns
+cfg buffer 6 00016b000576
+cfg proplen 6
+cfg ops 1 u:0
+op 0 u used=0 -> BadResponse at=5 left=1 used=0
+end scenario 11
+scenario 12 user-property-with-no-value
+cfg buffer 3 00016b
+cfg proplen 3
+cfg ops 1 u:0
+op 0 u used=0 -> BadResponse at=3 left=0 used=0
+end scenario 12
+scenario 13 mixed-run-then-exhaustion
+cfg buffer 14 011234000474657374deadbeef00
+cfg proplen 14
+cfg ops 5 1:0 2:0 s:0 4:0 2:0
+op 0 1 used=0 -> Success 01 at=1 left=13 used=1
+op 1 2 used=0 -> Success 1234 at=3 left=11 used=1
+op 2 s used=0 -> Success 5 4 at=9 left=5 used=1
+op 3 4 used=0 -> Success deadbeef at=13 left=1 used=1
+op 4 2 used=0 -> BadResponse at=13 left=1 used=0
+end scenario 13
+varlen total 6480
+varlen Success 3510
+varlen refused 2970
+varlen digest 7a0d45b526b953f7
+encode 0 0 -> 2 0000
+encode 1 1 -> 3 000161
+encode 2 9 -> 11 0009746f7069632f6f6e65
+encode 3 16 -> 18 001030313233343536373839616263646566
+encode null 4 -> 6 0004aaaaaaaa
+end

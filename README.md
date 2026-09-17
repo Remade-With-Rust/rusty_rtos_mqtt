@@ -4,8 +4,9 @@
 [![docs.rs](https://docs.rs/rusty_rtos_mqtt/badge.svg)](https://docs.rs/rusty_rtos_mqtt)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-A `no_std` MQTT publish state machine and fixed-header codec, the first slices
-of the Kairos remake of coreMQTT. MIT OR Apache-2.0.
+A `no_std` MQTT publish state machine, fixed-header codec and MQTT 5 property
+primitives — three proven slices of the Kairos remake of coreMQTT.
+MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
 v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
@@ -21,14 +22,18 @@ lives.
   remaining length every packet starts with — over **6,291,456 calls**: every
   one of the 256 type bytes against every length pattern at every claimed
   length, compared by per-status counts and an FNV-1a digest.
+- **Proven**: the MQTT 5 property primitives — the bounded integer, string and
+  user-property reads every property in every packet goes through — over 104
+  trace lines and a 6,480-call sweep, comparing the cursor and the budget after
+  every read, not just the answer.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The rest of the wire
-serializer — CONNECT, PUBLISH, SUBSCRIBE and the MQTT 5 property codecs — and
-the connection state machine (`core_mqtt.c`, 5,618 lines) are **not written**.
-This crate can recognise a packet arriving and track what is in flight; it
-cannot yet build one.
+**Known gaps, and they are still most of coreMQTT.** The packet bodies —
+CONNECT, PUBLISH, SUBSCRIBE and the property *tables* that sit on top of the
+primitives — and the connection state machine (`core_mqtt.c`, 5,618 lines) are
+**not written**. This crate can recognise a packet arriving, read its properties
+and track what is in flight; it cannot yet build one.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -47,11 +52,11 @@ flashed" means no chip has run it.
 
 ## Status
 
-**Two slices built and proven; the rest of coreMQTT is not.** 413 trace lines
-across 24 scenarios agree with `core_mqtt_state.c`, comparing both record arrays
-after every operation, and 6,291,456 calls agree with the fixed-header codec in
-`core_mqtt_serializer.c` — both at the pinned v5.0.2. 15 tests. This crate can
-recognise a packet arriving; it cannot yet build one.
+**Three slices built and proven; the rest of coreMQTT is not.** 413 trace lines
+agree with `core_mqtt_state.c`, 6,291,456 calls with the fixed-header codec, and
+104 lines plus a 6,480-call sweep with the MQTT 5 property primitives — all at
+the pinned v5.0.2. **11.2 % of the library.** 25 tests. This crate can recognise
+a packet arriving and read its properties; it cannot yet build one.
 
 ## What it is
 
@@ -171,6 +176,68 @@ allocation reads whatever is next in memory. Here the count is only ever an
 upper bound on a `get`, so an over-large one produces `NeedMoreBytes` and
 nothing else. There is a test for exactly that.
 
+## The property primitives
+
+**104 trace lines plus a 6,480-call sweep agree with
+`core_mqtt_serializer_private.c`.**
+
+MQTT 5 adds properties to almost every packet, and every one of them is decoded
+through the same handful of primitives: a one-, two- or four-byte integer, a
+length-prefixed string, or a user property, which is two strings. They carry two
+rules between them, and both are protocol requirements:
+
+1. **A property may appear once.** A repeat is a protocol error, not
+   last-one-wins.
+2. **Every read is bounded by the property length**, which was itself decoded
+   from the packet a moment earlier — so a string claiming more bytes than the
+   property has left must be refused *before* the read.
+
+### A failed read still moves the cursor
+
+The differential compares the status, the value, **and where the cursor and the
+budget were left**. That third part is the one that matters. `decodeUtf8`
+consumes its two length bytes and charges them to the budget *before* it
+discovers the body does not fit, so a refusal leaves the cursor two bytes on and
+the budget two smaller.
+
+A transcription that tidied that up would look more correct and would disagree
+with the C on every malformed packet. It is reproduced deliberately, it has its
+own test, and the "tidy" version is one of the poisons.
+
+### Two variable-length decoders, not one
+
+This slice's `decode_variable_length` is the **property** length decoder.
+[The fixed header](#the-fixed-header) has its own. They are not the same
+function: one starts at index 0 and is bounded by a buffer length, the other
+starts at index 1 and is bounded by a count of bytes received, and they differ
+in how they treat an out-of-range value. Reusing either for the other is the
+mistake a single-function test cannot see, so both are transcribed and both get
+their own exhaustive sweep.
+
+**Poison-proven on eight behaviours, seven caught:** allowing a duplicate
+property, charging the length bytes only after the body fits, a one-byte budget
+for a two-byte length, a three-byte budget for a four-byte integer, dropping the
+non-minimal check, a little-endian string length, and a user property that does
+not reset its seen flag between key and value.
+
+The eighth did not fire and is **provably dead code**. The property length
+decoder has an in-loop range check against 268,435,456 that can never be
+reached: the multiplier guard stops the loop after four bytes, and four bytes of
+seven bits reach exactly 268,435,455 — one less. The check stays because the C
+has it and a differential arm does not tidy its oracle, and a unit test pins the
+arithmetic, because the bound is a relationship between two constants that could
+move.
+
+### A second bound the C does not have
+
+`decodeUtf8` checks the claimed length against the property **budget** and then
+indexes. If the packet claims a budget larger than the bytes actually received —
+which an attacker chooses freely — the C reads past the buffer. Here the budget
+is checked first, exactly as the C does, and then the slice is taken with `get`.
+There is a test for it, and it is the second instance of the category the fixed
+header found: a differential proves we match the C's *answers*, and says nothing
+about what the C does on inputs that violate its own preconditions.
+
 ## The gate
 
 This module takes no bytes from the network, so it looks safer than a parser. It
@@ -185,6 +252,9 @@ each one indexes a record array.
 | cursor termination | both resend cursors must finish; one that failed to advance past a match would spin rather than fail, the same hazard `rusty_rtos_json`'s iterator and `rusty_rtos_sntp`'s retry loops have |
 | arbitrary header bytes | 200,000 buffers of 0..8 bytes with a claimed count of 0..12 — deliberately including counts LARGER than the buffer, which is the shape the C cannot survive |
 | encoding into any buffer | 100,000 lengths into buffers of 0..7 bytes; a refused encode must leave the fill untouched |
+| arbitrary property sections | 100,000 readers over 0..24 bytes with budgets up to 40 — routinely larger than the buffer, which is what an attacker sends — asserting the cursor never passes what exists |
+| arbitrary property lengths | 200,000 buffers of 0..7 bytes through the property length decoder |
+| encoding a string anywhere | 50,000 encodes with a claimed length independent of the source |
 
 A duplicate packet id in the records would make two messages share one
 handshake, which is why that invariant is checked after every operation rather

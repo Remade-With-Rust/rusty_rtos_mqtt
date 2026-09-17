@@ -1,6 +1,6 @@
 [package]
 name = "rusty_rtos_mqtt-core"
-description = "The pure no_std core of rusty_rtos_mqtt: the QoS publish state machine and the fixed-header codec, with no CPU, no allocator and no operating system. forbid(unsafe)."
+description = "The pure no_std core of rusty_rtos_mqtt: the QoS publish state machine, the fixed-header codec and the MQTT 5 property primitives, with no CPU, no allocator and no operating system. forbid(unsafe)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

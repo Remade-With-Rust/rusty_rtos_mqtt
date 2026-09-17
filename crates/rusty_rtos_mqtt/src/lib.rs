@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 //! `rusty_rtos_mqtt` — the first slice of coreMQTT, remade in Rust.
 //!
-//! **What is here.** Two slices, both diffed against the C.
+//! **What is here.** Three slices, each diffed against the C.
 //!
 //! `core_mqtt_state.c` — the QoS 1 and QoS 2 delivery state machine, in both
 //! directions, across 24 scenarios. The differential compares both record
@@ -14,10 +14,18 @@
 //! 6,291,456 calls: every one of the 256 type bytes against every length
 //! pattern at every claimed length.
 //!
-//! **What is not:** the rest of the wire codec (~5,870 lines plus 2,056 of MQTT
-//! 5 property codecs) and the connection state machine (`core_mqtt.c`, 5,618
-//! lines). This crate can recognise a packet arriving and track what is in
-//! flight; it cannot yet build one.
+//! The **MQTT 5 property primitives** out of `core_mqtt_serializer_private.c`
+//! — the bounded integer, string and user-property reads every property in
+//! every packet goes through. The differential compares the cursor and the
+//! budget after every read, because a refused string has already consumed its
+//! length bytes and a transcription that tidied that up would disagree with the
+//! C on every malformed packet.
+//!
+//! **What is not:** the packet bodies (~5,870 lines plus 2,056 of MQTT 5
+//! property tables) and the connection state machine (`core_mqtt.c`, 5,618
+//! lines). 11.2 % of coreMQTT is remade. This crate can recognise a packet
+//! arriving, read its properties and track what is in flight; it cannot yet
+//! build one.
 //!
 //! Zero allocation, `no_std`, `forbid(unsafe)`.
 //!

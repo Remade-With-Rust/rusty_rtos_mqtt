@@ -43,6 +43,28 @@ takes a pointer and a count and trusts the count, so an `available` larger than
 the allocation reads past the buffer. Ours uses the count only as an upper bound
 on a `get`. There is a test for it.
 
+## Conformance (2026-09-17) — the property primitives
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **104 / 104** | `cargo test -p rusty_rtos_mqtt-core --test property`. C arm: `oracle/property_driver.c` driving `core_mqtt_serializer_private.c` verbatim from v5.0.2 at `04845c6a`. |
+| scenarios | **13** | one of each integer width, a duplicate property, each width against a budget one byte short, five string shapes including one claiming 65,535 bytes, three user-property shapes, and a mixed run ending in exhaustion. |
+| what is compared per read | **the status, the value, the CURSOR and the BUDGET** | a failed `decodeUtf8` has already consumed its two length bytes, so it leaves the cursor moved and the budget smaller. Comparing only the status would bless a transcription that tidied that up and then disagreed with the C on every malformed packet. |
+| `decodeVariableLength` sweep | **6,480 calls** | every 4-byte pattern from a six-value alphabet at every buffer length 0..4, compared by counts (3,510 accepted, 2,970 refused) and an FNV-1a digest. |
+| poison rows | **8 introduced, 7 caught** | duplicate property allowed, length bytes charged late, a one-byte budget for a two-byte length, a three-byte budget for a four-byte integer, the non-minimal check dropped, a little-endian string length, and a user property that does not reset its seen flag. |
+
+**The eighth poison is provably dead code.** The property length decoder has an
+in-loop check against 268,435,456 that can never fire: the multiplier guard
+stops the loop after four bytes, and four bytes of seven bits reach exactly
+268,435,455 — one less. Verified as arithmetic, kept because the C keeps it, and
+pinned by a unit test because the bound is a relationship between two constants.
+
+**A second bound the C does not have.** `decodeUtf8` checks the claimed length
+against the property BUDGET and then indexes, so a packet claiming a budget
+larger than the bytes received makes the C read past the buffer. Ours checks the
+budget first, exactly as the C does, then takes the slice with `get`. Second
+instance of the category the fixed header found.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -58,7 +80,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 15 passed, 0 failed (2 unit, 5 gate, 3 state differential, 5 header differential) |
+| `cargo test -p rusty_rtos_mqtt-core` | 25 passed, 0 failed (4 unit, 8 gate, 3 state, 5 header, 5 property) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -71,12 +93,14 @@ A count that belongs here because the README's honesty depends on it.
 |---|---:|---|
 | `core_mqtt_state.c` | 1,206 | **remade and proven** |
 | `core_mqtt_serializer.c`, the fixed-header codec | ~240 | **remade and proven** |
+| `core_mqtt_serializer_private.c`, the property primitives | ~309 | **remade and proven** |
 | `core_mqtt_serializer.c`, the rest | ~5,870 | not written |
+| `core_mqtt_serializer_private.c`, the rest | ~344 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
-| `core_mqtt_serializer_private.c` | 653 | not written |
+
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **9.2 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **11.2 % remade** |
 
 No speed number and no size number: nothing here has been benchmarked, and
 nothing has run on a chip.

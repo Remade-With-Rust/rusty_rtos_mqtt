@@ -44,3 +44,13 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/header_driver" > "$here/header.trace"
 echo "wrote $(wc -l < "$here/header.trace") lines to $here/header.trace"
+
+# The property-primitive differential's C arm.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/property_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/property_driver.c"
+
+"$here/property_driver" > "$here/property.trace"
+echo "wrote $(wc -l < "$here/property.trace") lines to $here/property.trace"
