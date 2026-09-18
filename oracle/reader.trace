@@ -1,0 +1,20 @@
+geometry cases=17
+case 0 pingresp script=d0,00 -> Success calls=2 read=d0,00 type=d0 rl=0
+case 1 puback script=40,02 -> Success calls=2 read=40,02 type=40 rl=2
+case 2 publish-qos0 script=30,0b -> Success calls=2 read=30,0b type=30 rl=11
+case 3 pubrel script=62,02 -> Success calls=2 read=62,02 type=62 rl=2
+case 4 two-byte-length script=30,80,01 -> Success calls=3 read=30,80,01 type=30 rl=128
+case 5 three-byte-length script=30,ff,ff,7f -> Success calls=4 read=30,ff,ff,7f type=30 rl=2097151
+case 6 four-byte-length script=30,ff,ff,ff,7f -> Success calls=5 read=30,ff,ff,ff,7f type=30 rl=268435455
+case 7 type-connect-is-client-only script=10,00 -> BadResponse calls=1 read=10
+case 8 type-zero script=00,00 -> BadResponse calls=1 read=00
+case 9 pubrel-without-its-reserved-bit script=60,02 -> BadResponse calls=1 read=60
+case 10 five-length-bytes script=30,ff,ff,ff,ff,7f -> BadResponse calls=5 read=30,ff,ff,ff,ff
+case 11 non-minimal-length script=30,80,00 -> BadResponse calls=3 read=30,80,00
+case 12 nothing-at-the-type-byte script=none -> NoDataAvailable calls=1 read=none
+case 13 error-at-the-type-byte script=err -> RecvFailed calls=1 read=err
+case 14 nothing-at-the-length-byte script=30,none -> BadResponse calls=2 read=30,none
+case 15 error-at-the-length-byte script=30,err -> BadResponse calls=2 read=30,err
+case 16 nothing-mid-length script=30,80,none -> BadResponse calls=3 read=30,80,none
+type-sweep accepted=20,21,22,23,24,25,26,27,28,29,2a,2b,2c,2d,2e,2f,30,31,32,33,34,35,36,37,38,39,3a,3b,3c,3d,3e,3f,40,41,42,43,44,45,46,47,48,49,4a,4b,4c,4d,4e,4f,50,51,52,53,54,55,56,57,58,59,5a,5b,5c,5d,5e,5f,62,63,66,67,6a,6b,6e,6f,70,71,72,73,74,75,76,77,78,79,7a,7b,7c,7d,7e,7f,90,91,92,93,94,95,96,97,98,99,9a,9b,9c,9d,9e,9f,b0,b1,b2,b3,b4,b5,b6,b7,b8,b9,ba,bb,bc,bd,be,bf,d0,d1,d2,d3,d4,d5,d6,d7,d8,d9,da,db,dc,dd,de,df,e0,e1,e2,e3,e4,e5,e6,e7,e8,e9,ea,eb,ec,ed,ee,ef,f0,f1,f2,f3,f4,f5,f6,f7,f8,f9,fa,fb,fc,fd,fe,ff n=168 refused=88 calldigest=16e7bd39d0bf917b
+end

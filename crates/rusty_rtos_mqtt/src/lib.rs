@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 //! `rusty_rtos_mqtt` — the first slice of coreMQTT, remade in Rust.
 //!
-//! **What is here.** Twelve slices, each diffed against the C.
+//! **What is here.** Thirteen slices, each diffed against the C.
 //!
 //! `core_mqtt_state.c` — the QoS 1 and QoS 2 delivery state machine, in both
 //! directions, across 24 scenarios. The differential compares both record
@@ -69,11 +69,15 @@
 //! coreMQTT validating them correctly on the way out and incorrectly on the way
 //! in: the library disagrees with itself.
 //!
-//! **What is not:** the transport reader, the property validators and the
-//! context helpers (~1,911 lines, plus 2,056 of MQTT 5 property builders) and
-//! the connection state machine (`core_mqtt.c`, 5,618 lines). 37.7 % of
-//! coreMQTT is remade. This crate can build and read every MQTT packet; it
-//! cannot yet run a connection.
+//! The **transport reader** — the one function here that takes a CALLBACK
+//! rather than a buffer. Compared CALL FOR CALL, because two of its orderings
+//! are invisible in the status and plain in the log.
+//!
+//! **What is not:** the property validators and the context helpers (~1,797
+//! lines, plus 2,056 of MQTT 5 property builders) and the connection state
+//! machine (`core_mqtt.c`, 5,618 lines). 38.4 % of coreMQTT is remade. This
+//! crate can build and read every MQTT packet; it cannot yet run a
+//! connection.
 //!
 //! Zero allocation, `no_std`, `forbid(unsafe)`.
 //!

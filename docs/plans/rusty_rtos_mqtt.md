@@ -41,9 +41,10 @@ registers are touched (that is a port crate).
 codec (~240 lines), the packet-size calculators (~300), the acknowledgement
 deserializers (~586), the CONNACK path (~566), the incoming PUBLISH (~466) and
 the DISCONNECT in both directions (~505), the CONNECT (~348), the outgoing
-PUBLISH (~584) and SUBSCRIBE/UNSUBSCRIBE/the acks/PINGREQ (~604); and, out of
-`core_mqtt_serializer_private.c`, the property primitives (~309 lines) and the
-fixed-header writers (~180). 37.7 % of the library — **every packet a broker can
+PUBLISH (~584), SUBSCRIBE/UNSUBSCRIBE/the acks/PINGREQ (~604) and the transport
+reader (~114); and, out of `core_mqtt_serializer_private.c`, the property
+primitives (~309 lines) and the fixed-header writers (~180). 38.4 % of the
+library — **every packet a broker can
 send and every packet a client can send**, which is the whole wire codec.
 
 | ours | coreMQTT | note |
@@ -147,10 +148,10 @@ SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, in `outbound`:
 | `subscription_options(&Subscription)` | the options byte built inline | five decisions in six bits |
 | `Subscription { topic_filter, qos, no_local, retain_as_published, retain_handling }` | `MQTTSubscribeInfo_t` | one struct for both list packets, as the C's is |
 
-**Not built:** the transport reader, the outgoing property validators and the
-context helpers (~1,911 lines of `core_mqtt_serializer.c`), `core_mqtt_prop_*.c`
-(2,056 for the MQTT 5 property builders) and `core_mqtt.c` (5,618). This crate
-can build and read every MQTT packet; it cannot yet run a connection.
+**Not built:** the outgoing property validators and the context helpers (~1,797
+lines of `core_mqtt_serializer.c`), `core_mqtt_prop_*.c` (2,056 for the MQTT 5
+property builders) and `core_mqtt.c` (5,618). This crate can build and read every
+MQTT packet; it cannot yet run a connection.
 
 ## 4. Roadmap
 
@@ -169,6 +170,7 @@ can build and read every MQTT packet; it cannot yet run a connection.
 | **the CONNECT** | the packet that starts a session: eight length-prefixed fields, four optional | K7 | **30 trace lines agree BYTE FOR BYTE, plus a 32-combination digest of the whole packet; four ordering poisons caught that a parse-level comparison could not see** ✅ |
 | **the outgoing PUBLISH** | the packet that carries the application's data out, across all THREE of coreMQTT's serializers | K7 | **25 trace lines agree byte for byte; the trace carries the prefix relationship between the three, and four broken-contract cases refuted an assumption of mine on their first run** ✅ |
 | **SUBSCRIBE / UNSUBSCRIBE / acks / PINGREQ** | what is left of the outgoing wire codec | K7 | **45 trace lines agree byte for byte; sweeping the ack reason codes per type showed coreMQTT validating them CORRECTLY on the way out and incorrectly on the way in** ✅ |
+| **the transport reader** | the one function that takes a CALLBACK rather than a buffer | K7 | **20 trace lines agree CALL FOR CALL; two orderings that only the call count can show are poisoned and caught** ✅ |
 | the outgoing property validators | `MQTT_Validate*Properties` and the context helpers | K7 | a differential over each property table |
 | MQTT 5 properties | `core_mqtt_prop_*.c` | K7 | the same, over a property corpus |
 | the connection | `core_mqtt.c` over a transport | K7 | a callback-for-callback differential, the shape `rusty_rtos_sntp`'s client established |
@@ -245,3 +247,5 @@ can build and read every MQTT packet; it cannot yet run a connection.
 | 2026-09-18 | **An API contract the corpus always keeps is an API contract nobody has tested.** The C says calling `MQTT_GetPublishPacketSize` before the serializers is "part of the API contract", and every case did — so the header size reported and the bytes written were always equal and a poison swapping them passed. Four cases now break the contract deliberately. **When a comment says callers must do X, add the case where they do not.** |
 | 2026-09-18 | **When a library validates the same thing twice, diff the two validators — one of them may be right.** coreMQTT checks publish-acknowledgement reason codes per packet type on the way OUT (nine for a PUBACK, two for a PUBREL: exactly MQTT 5.0) and against one shared table of ten on the way IN. So it refuses to SEND a PUBACK carrying `0x92` and accepts one. That is the sharpest evidence for the upstream report already drafted on the reading-side table, and it changes what the fix is: not "write a table" but "use the one three thousand lines up". |
 | 2026-09-18 | **A poison must change the thing it names.** The first attempt at "check the filters before the buffer" REMOVED the buffer check rather than moving it — a different experiment, which the slices below subsumed, and it reported a miss that was not one. Rewritten to reorder the two checks, it was caught immediately. **Read the poison back and ask whether it does what its name says** before drawing any conclusion from a miss. |
+| 2026-09-18 | **Where a function takes a CALLBACK, compare the call sequence — two orderings here are invisible in the status and plain in the log.** The transport reader checks the packet type BEFORE reading the length, and checks its multiplier guard BEFORE each read; both mean a malformed stream costs the peer one byte instead of a whole drained header, and both answer `MQTTBadResponse` either way. Poisoning each is caught only by the count. Fourth package to use the shape `rusty_rtos_sntp`'s client established. |
+| 2026-09-18 | **An ADDITION to the C's answer does not belong in the trace.** `MQTT_GetIncomingPacketTypeAndLength` never sets `headerLength`, so a C caller counts the bytes itself. We counted them anyway and return the number — but the C has nothing to compare it against, so it is pinned by a unit test and kept out of the differential. A trace line one arm invents is not a comparison. |

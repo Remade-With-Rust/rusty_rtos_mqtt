@@ -46,3 +46,6 @@ oracle/outpublish_driver.pdb
 oracle/outbound_driver
 oracle/outbound_driver.exe
 oracle/outbound_driver.pdb
+oracle/reader_driver
+oracle/reader_driver.exe
+oracle/reader_driver.pdb

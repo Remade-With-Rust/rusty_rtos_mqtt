@@ -152,3 +152,14 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/outbound_driver" > "$here/outbound.trace"
 echo "wrote $(wc -l < "$here/outbound.trace") lines to $here/outbound.trace"
+
+# The transport-reader differential's C arm: the first function in the package
+# that takes a CALLBACK rather than a buffer, so the call sequence is compared.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/reader_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/reader_driver.c"
+
+"$here/reader_driver" > "$here/reader.trace"
+echo "wrote $(wc -l < "$here/reader.trace") lines to $here/reader.trace"

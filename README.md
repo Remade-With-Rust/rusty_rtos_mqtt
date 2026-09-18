@@ -66,12 +66,11 @@ lives.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The transport reader, the
-outgoing property validators and the context helpers (~1,911 lines of
-`core_mqtt_serializer.c`), the MQTT 5 property builders (`core_mqtt_prop_*.c`,
-2,056 lines) and the connection state machine (`core_mqtt.c`, 5,618 lines) are
-**not written**. This crate can build and read every MQTT packet; it cannot yet
-run a connection.
+**Known gaps, and they are still most of coreMQTT.** The outgoing property
+validators and the context helpers (~1,797 lines of `core_mqtt_serializer.c`),
+the MQTT 5 property builders (`core_mqtt_prop_*.c`, 2,056 lines) and the
+connection state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This
+crate can build and read every MQTT packet; it cannot yet run a connection.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -98,11 +97,12 @@ calculators, 57 lines plus three 256-value sweeps with the acknowledgement
 deserializers, 54 lines plus six more with the CONNACK, 54 lines plus eight more
 with the incoming PUBLISH, 58 lines plus twelve more with the DISCONNECT in both
 directions, 30 lines plus a 32-combination whole-packet sweep with the CONNECT,
-25 lines across three serializers with the outgoing PUBLISH, and 45 lines with
-SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ — all at the pinned
-v5.0.2. **37.7 % of the library.** 105 tests. **This crate reads every packet a
-broker can send and writes every packet a client can send** — the whole wire
-codec; what is missing is the connection state machine that drives it.
+25 lines across three serializers with the outgoing PUBLISH, 45 lines with
+SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, and 20 lines comparing
+the transport reader CALL FOR CALL — all at the pinned v5.0.2. **38.4 % of the
+library.** 113 tests. **This crate reads every packet a broker can send, off a
+socket, and writes every packet a client can send** — the whole wire codec; what
+is missing is the connection state machine that drives it.
 
 ## What it is
 
@@ -945,6 +945,65 @@ allowed; the two checks reordered; **the ack tables merged into one**; a PUBACK
 allowed to carry `0x92`; the property-length byte dropped from a bare-reason
 ack; a wrong remaining length; the buffer statuses unified; a zero ack packet
 id; and a PINGREQ with the wrong type byte.
+
+## The transport reader
+
+**20 trace lines agree with `core_mqtt_serializer.c`** — and they compare the
+**call sequence**, not just the answer.
+
+Every other function in this crate is handed a buffer. This one is handed a
+**callback** and pulls the type byte and then the variable-byte remaining length
+off a socket, one byte at a time. So what it asked for, and how many times, is as
+much of the behaviour as what it returned — the shape `rusty_rtos_sntp`'s client
+differential established.
+
+```
+case 1  puback         script=40,02      -> Success calls=2 read=40,02 type=40 rl=2
+case 7  type-connect   script=10,00      -> BadResponse calls=1 read=10
+case 12 nothing-at-the-type-byte script=none -> NoDataAvailable calls=1 read=none
+case 14 nothing-at-the-length-byte script=30,none -> BadResponse calls=2 read=30,none
+```
+
+### Two orderings that only the call count can show
+
+**The type is checked before the length is read.** A packet type a client may
+not receive is refused after **one** call rather than after the whole header has
+been drained. The status is `BadResponse` either way, so nothing but the count
+distinguishes a reader that stops at the first byte of a malformed stream from
+one that keeps pulling.
+
+**The multiplier guard runs before the read, not after.** A fifth continuation
+byte is refused *without asking the transport for it*. Again invisible in the
+status, and again one more byte handed to a hostile peer on every malformed
+packet if it were the other way round.
+
+Both are poisons, and both are caught by the log.
+
+### Two statuses the library uses nowhere else
+
+A transport can answer with a byte, with nothing yet, or with an error, and the C
+distinguishes the last two — `MQTTNoDataAvailable` and `MQTTRecvFailed` — **only
+at the type byte**. One byte in, both become `MQTTBadResponse`, because a header
+that started must finish. A distinction the C draws once and then drops, with
+cases for each side of it.
+
+### Poison-proven on seven behaviours, six caught
+
+The type checked after the length; the two failures distinguished everywhere;
+the multiplier guard moved after the read; the non-minimal check dropped; the
+type byte dropped from the header length; and the two statuses swapped.
+
+The seventh is the out-of-range check, which cannot fire — the multiplier guard
+bounds the value to exactly one less than the constant it tests against. Third
+instance of that same arithmetic in this package, and pinned the same way.
+
+### One number the C does not produce
+
+`MQTT_GetIncomingPacketTypeAndLength` sets `remainingLength` and leaves
+`headerLength` exactly as the caller left it, so a C caller has to count the
+bytes itself. We counted them anyway, so `IncomingHeader::header_length` is free
+— an **addition**, not a transcription. It is not in the trace, because the C
+has nothing to compare it against, and a unit test pins it instead.
 
 ## The gate
 

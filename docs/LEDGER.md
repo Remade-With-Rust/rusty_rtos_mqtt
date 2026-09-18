@@ -429,6 +429,40 @@ that is wrong about both reports `NoMemory`. The order is observable; the first
 poison written for it removed the check instead of moving it, which is a
 different experiment — rewritten, and then caught.
 
+## Conformance (2026-09-18) — the transport reader
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **20 / 20** | `cargo test -p rusty_rtos_mqtt-core --test reader`. C arm: `oracle/reader_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`, with a scripted transport. |
+| what is compared per case | **the status, THE CALL COUNT, the log of every byte asked for, and the answer** | this is the one function in the package that takes a CALLBACK, so what it asked for is as much of the behaviour as what it returned. |
+| named cases | **17** | each remaining-length width, three refused type bytes, the two length malformations, and each of the transport's three answers at both the type byte and past it. |
+| type sweep | **256 calls** | every type byte through the READER rather than through `incoming_packet_valid` directly, with the CALL COUNTS digested as well as the statuses. |
+| poison rows | **7 introduced, 6 caught** | the type checked after the length, the two failures distinguished everywhere, the multiplier guard moved after the read, the non-minimal check dropped, the type byte dropped from the header length, and the two statuses swapped. |
+
+**Two orderings that only the call count can show.** The type is checked BEFORE
+the length is read, so a packet a client may not receive costs one call and not
+a drained header; and the multiplier guard runs BEFORE the read, so a fifth
+continuation byte is refused without asking the transport for it. Both are
+`MQTTBadResponse` either way — the status cannot tell them apart, and the log
+can. Both are poisons and both are caught.
+
+**Two statuses the library uses nowhere else**, and only at the first byte.
+`MQTTNoDataAvailable` and `MQTTRecvFailed` are distinguished at the type byte;
+one byte in, both become `MQTTBadResponse`, because a header that started must
+finish. A distinction the C draws once and then drops.
+
+**The seventh poison is the out-of-range check, which cannot fire.** The
+multiplier guard bounds the value to exactly 268,435,455, one less than the
+constant it tests. Third instance of that arithmetic in this package, after the
+property length decoder's and the fixed header's, and pinned the same way.
+
+**And one number the C does not produce.**
+`MQTT_GetIncomingPacketTypeAndLength` leaves `headerLength` as the caller left
+it — only `processRemainingLength` sets it, and this function does not call
+that. `IncomingHeader::header_length` is therefore an ADDITION: the bytes were
+counted anyway, so the number is free. It is not in the trace, because the C has
+nothing to compare it against.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -444,7 +478,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 105 passed, 0 failed (53 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound) |
+| `cargo test -p rusty_rtos_mqtt-core` | 113 passed, 0 failed (58 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -467,13 +501,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the CONNECT | ~348 | **remade and proven** |
 | `core_mqtt_serializer.c`, the outgoing PUBLISH | ~584 | **remade and proven** |
 | `core_mqtt_serializer.c`, SUBSCRIBE, UNSUBSCRIBE, the acks and PINGREQ | ~604 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~1,911 | not written |
+| `core_mqtt_serializer.c`, the transport reader | ~114 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~1,797 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **37.7 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **38.4 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not
