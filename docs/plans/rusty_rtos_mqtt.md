@@ -38,10 +38,10 @@ registers are touched (that is a port crate).
 ## 3. The surface as built
 
 `core_mqtt_state.c`, whole; out of `core_mqtt_serializer.c` the fixed-header
-codec (~240 lines), the packet-size calculators (~300) and the acknowledgement
-deserializers (~586); and, out of `core_mqtt_serializer_private.c`, the property
-primitives (~309 lines) and the fixed-header writers (~180). 18.0 % of the
-library.
+codec (~240 lines), the packet-size calculators (~300), the acknowledgement
+deserializers (~586) and the CONNACK path (~566); and, out of
+`core_mqtt_serializer_private.c`, the property primitives (~309 lines) and the
+fixed-header writers (~180). 21.7 % of the library.
 
 | ours | coreMQTT | note |
 |---|---|---|
@@ -78,11 +78,22 @@ The acknowledgement deserializers, in `ack`:
 | `AckError::{BadParameter, BadResponse}` | the two statuses this path returns | five of the C's `MQTTBadParameter` paths are NULL checks with no Rust equivalent |
 | `PUBREL` | `MQTT_PACKET_TYPE_PUBREL` | `0x62`, spelled out rather than reusing the `0x60` nibble the header codec masks to |
 
-**Not built:** the rest of `core_mqtt_serializer.c` (~4,984 lines) — the packet
-BODIES, the CONNACK path and the PUBLISH deserializer — `core_mqtt_prop_*.c`
-(2,056 for MQTT 5 properties) and `core_mqtt.c` (5,618). This crate can
-recognise a packet arriving, read its properties, size an outgoing one and read
-any acknowledgement whole; it cannot yet fill in a packet body.
+The CONNACK, in `connack`:
+
+| ours | coreMQTT | note |
+|---|---|---|
+| `deserialize_connack(&PacketInfo, &ClientSettings)` | `MQTT_DeserializeConnAck` | |
+| `ClientSettings { max_packet_size, request_response_info }` | the two `MQTTConnectionProperties_t` fields that are INPUTS | the C writes the server's answers into the same struct; splitting them stops a caller feeding the broker's numbers back as its own |
+| `ServerSettings` | the ten `server*` fields | every limit the rest of the session runs under |
+| `ConnAck { session_present, reason_code, server, fields_present, properties }` | the out-parameters plus `MQTTPropBuilder_t::fieldSet` | `fields_present` distinguishes "the server said 0" from "the server said nothing", which for Maximum QoS are opposite claims |
+| `ConnAck::refused()` | `MQTTServerRefused` | a refusal is `Ok`, because the Reason String that says WHY is in the properties and an `Err` would discard it |
+| `connack::property`, `connack::field` | the property ids and the `fieldSet` bit positions | the C's numbering exactly; these cross the API in a `u32` |
+
+**Not built:** the rest of `core_mqtt_serializer.c` (~4,418 lines) — the packet
+BODIES and the PUBLISH deserializer — `core_mqtt_prop_*.c` (2,056 for the
+outgoing MQTT 5 property tables) and `core_mqtt.c` (5,618). This crate can now
+read every packet a broker sends except a PUBLISH, and write any outgoing
+header; it cannot yet fill in a packet body.
 
 ## 4. Roadmap
 
@@ -95,6 +106,7 @@ any acknowledgement whole; it cannot yet fill in a packet body.
 | **fixed-header writers** | the header of every outgoing packet type | K7 | **51 trace lines plus a 1,536-call exhaustive CONNECT-flags sweep agree, byte for byte** ✅ |
 | **packet sizes** | the remaining length and packet size every writer is handed | K7 | **53 trace lines agree, including the 268,435,455 boundary at the exact value each check tests, and the calculators reconcile with the writers** ✅ |
 | **acknowledgement deserializers** | every ack a broker can send, except CONNACK | K7 | **57 trace lines plus three 256-value sweeps agree; the sweeps' accepted sets are printed in full, and reading them found three divergences from MQTT 5.0** ✅ |
+| **the CONNACK** | the packet that sets every connection-wide limit | K7 | **54 trace lines plus six 256-value sweeps agree; the reason-code and property tables are exactly MQTT 5.0 §3.2.2.2 and §3.2.2.3, asserted from the trace** ✅ |
 | CONNECT / PUBLISH / SUBSCRIBE | the rest of the wire codec | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
 | MQTT 5 properties | `core_mqtt_prop_*.c` | K7 | the same, over a property corpus |
 | the connection | `core_mqtt.c` over a transport | K7 | a callback-for-callback differential, the shape `rusty_rtos_sntp`'s client established |
@@ -117,7 +129,8 @@ any acknowledgement whole; it cannot yet fill in a packet body.
 | The packet ids driving this come from the broker, so they are attacker-chosen. | `tests/no_panic.rs` drives 200 x 60 random operations over a four-id space and checks well-formedness after every step: no duplicate id, no occupied record at QoS 0, no empty slot keeping stale fields. |
 | A resend cursor that failed to advance would spin rather than fail. | Asserted, the same way `rusty_rtos_json`'s iterator and `rusty_rtos_sntp`'s retry loops are. |
 | A guard whose effect is invisible in every scenario looks like dead code and gets removed. | Two were found by poisons that did not fire. One (the ack/QoS check) was a WORKLOAD gap and got a scenario; the other (the self-transition guard) is genuinely an optimisation, and a unit test pins why. |
-| **This is 2,821 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **This is 3,387 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| A one-byte table sweep looks exhaustive and can discriminate NOTHING, when the byte selects values of different widths. | The CONNACK property identifier is swept five times, once per value shape; the five accepted sets are the table AND say which identifier is which type. A single sweep would have refused 251 of 256 for the wrong reason. |
 | **The ack deserializers take a pointer and a length that an attacker can make disagree**, and that is exactly the input a differential cannot cover — the C would be reading past its own buffer, so its answer depends on memory rather than on the library. | The driver ASSERTS that every case's claim equals its body, so no such line can reach the trace; the over-claim is pinned on the Rust side alone by `a_claim_larger_than_the_buffer_is_refused`. |
 | A decision that comes down to a table of byte values looks proven by a handful of cases and is not. | All three of this slice's single-byte tables are swept over 256 values, and the ACCEPTED SET is printed in full rather than hashed — which is how the three specification divergences were found. |
 | A size calculator's limit checks sit three orders of magnitude above anything a plausible workload reaches, so they look proven and are not exercised at all. | The property length is the one input that can bridge the gap, and two cases are computed to land on each check EXACTLY. A case that overshoots cannot tell a `>=` from a `>`. |
@@ -145,3 +158,7 @@ any acknowledgement whole; it cannot yet fill in a packet body.
 | 2026-09-18 | **A one-byte decision table is swept and PRINTED, not hashed.** Twelve accepted values out of 256 is small enough for a reader to check against the specification, and a digest would have said only that the arms agree. Printing the accepted set into the checked-in trace is what turned up three divergences from MQTT 5.0 in `readSubackStatus` and `logAckResponse` — a digest would have concealed every one of them behind a passing test. |
 | 2026-09-18 | **A divergence from the SPECIFICATION is transcribed, and asserted from the TRACE.** The Rust arm reproduces all three faithfully, because it is a transcription and its oracle is the C. The test that records them reads the checked-in trace rather than our own code, so it is the pinned oracle changing its mind that fails the suite — which is the event that matters. |
 | 2026-09-18 | **An exact-fit check needs a workload that parses CLEANLY and then has one byte too many.** A poison that turned the pub-ack property section's equality into a bound did not fire, because every malformed section in the corpus was already refused by the property walk. The missing shape was a valid section followed by a byte nobody would ever look at — which is precisely the hazard the check exists for, since a broker could carry data inside a packet the client believes it read whole. |
+| 2026-09-18 | **A one-byte sweep must vary the SHAPE of what the byte introduces, or it discriminates nothing.** The CONNACK property identifier selects a value of one of five widths, so a body sized for one is malformed for the other four — both arms refuse for the wrong reason and every line still matches. Swept five times, once per shape, the accepted sets are the table and say which identifier is which type. Enumerating an input is not the same as exercising it. |
+| 2026-09-18 | **A sweep that confirms conformance is a result, and gets asserted the same way.** The ack deserializers' tables diverged from MQTT 5.0 in three places; the CONNACK's are exactly §3.2.2.2 and §3.2.2.3. That is worth an assertion rather than a sentence, and it is made against the CHECKED-IN TRACE, so the event it reports is the pinned oracle drifting. |
+| 2026-09-18 | **Where the C's status carries information, a `Result` must not throw it away.** `MQTTServerRefused` means the packet parsed and the broker said no, and the C fills its out-parameters on it because the Reason String that explains the refusal is in the property section. A refusal is therefore `Ok` here with `refused()` true. Mapping it to `Err` would have looked tidier and discarded the one thing a refused client needs. |
+| 2026-09-18 | **A check can be redundant in the ORACLE, not only in the transcription.** Third shape of the family: the size calculators' in-loop check is load-bearing in the C (wrapping arithmetic) and subsumed here (saturating); the ack deserializers' property bound is load-bearing in the C (pointer arithmetic) and subsumed here (a slice); the CONNACK's three-byte minimum is subsumed in BOTH arms, because `decodeVariableLength` refuses a zero-length buffer on its own. Kept because it states the packet's shape in one place; pinned so it stops being free the day it stops being true. |

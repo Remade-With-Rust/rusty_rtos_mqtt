@@ -5,8 +5,8 @@
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
-primitives, outgoing-packet writers, packet-size calculators and
-acknowledgement deserializers — six proven slices of the Kairos remake of
+primitives, outgoing-packet writers, packet-size calculators and the incoming
+CONNACK and acknowledgement paths — seven proven slices of the Kairos remake of
 coreMQTT. MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
@@ -39,15 +39,18 @@ lives.
   tables swept over 256 values. Reading those tables turned up **three
   divergences from MQTT 5.0**, including a conformant UNSUBACK that a stock
   client refuses.
+- **Proven**: the CONNACK — the first packet a broker sends and the one that
+  sets every limit the session then runs under. Its reason-code and property
+  tables are swept over 256 values each and are **exactly** MQTT 5.0's, which
+  after the three divergences next door is a result rather than an assumption.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
 **Known gaps, and they are still most of coreMQTT.** The packet *bodies* — the
 payloads that follow these headers — CONNECT's and PUBLISH's own size
-calculators and deserializers, the CONNACK path, the property tables on top of
-the primitives, and the connection state machine (`core_mqtt.c`, 5,618 lines)
-are **not written**. This crate has the pieces; it does not yet put a packet
-together.
+calculators and deserializers, the outgoing property tables, and the connection
+state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This crate has
+the pieces; it does not yet put a packet together.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -66,15 +69,15 @@ flashed" means no chip has run it.
 
 ## Status
 
-**Six slices built and proven; the rest of coreMQTT is not.** 413 trace lines
+**Seven slices built and proven; the rest of coreMQTT is not.** 413 trace lines
 agree with `core_mqtt_state.c`, 6,291,456 calls with the fixed-header codec, 104
 lines plus a 6,480-call sweep with the property primitives, 51 lines plus a
 1,536-call sweep with the outgoing-packet writers, 53 lines with the packet-size
-calculators, and 57 lines plus three 256-value sweeps with the acknowledgement
-deserializers — all at the pinned v5.0.2. **18.0 % of the library.** 49 tests.
-This crate can recognise a packet arriving, read its properties, size an
-outgoing one, write its header and read any acknowledgement whole; it cannot yet
-fill in a packet body.
+calculators, 57 lines plus three 256-value sweeps with the acknowledgement
+deserializers, and 54 lines plus six more sweeps with the CONNACK — all at the
+pinned v5.0.2. **21.7 % of the library.** 60 tests. This crate can now read
+every packet a broker sends except a PUBLISH, and write any outgoing header;
+it cannot yet fill in a packet body.
 
 ## What it is
 
@@ -463,6 +466,88 @@ predicate as the slice that follows it — the C needs it precisely because it h
 no slice, only pointer arithmetic — so loosening it changes no answer here. It
 is kept for fidelity and the equivalence is pinned, which is the second time a
 check load-bearing in the C has turned out to be subsumed in the transcription.
+
+## The CONNACK
+
+**54 trace lines agree with `core_mqtt_serializer.c`**, including six sweeps
+over all 256 values of a single byte.
+
+`MQTT_DeserializeAck` refuses a CONNACK and points the caller at its own
+function, and the split is not arbitrary. A CONNACK is the **first** thing a
+broker sends and the only packet that sets connection-wide state: the largest
+packet the server will accept, how many messages it will take in flight, whether
+retain and wildcards and shared subscriptions work at all, and what keep-alive
+the client must now use.
+
+Every later size check runs on numbers that arrive in this packet. Getting it
+wrong is not one malformed message — it is the whole session running under
+limits somebody else chose.
+
+### Five property sweeps, because one could not have worked
+
+The property identifier is one byte, so it is enumerable. But a **single** sweep
+cannot do it: each identifier introduces a value of a different *width*, and a
+body sized for one is malformed for the others — both arms would refuse for the
+wrong reason and the sweep would discriminate nothing.
+
+So it is swept five times, once per value shape, and each prints its own
+accepted set:
+
+```
+property-sweep one-byte      accepted=24,25,28,29,2a      n=5 rejected=251
+property-sweep two-byte      accepted=13,21,22            n=3 rejected=253
+property-sweep four-byte     accepted=11,27               n=2 rejected=254
+property-sweep string        accepted=12,15,16,1a,1c,1f   n=6 rejected=250
+property-sweep user-property accepted=26                  n=1 rejected=255
+```
+
+Seventeen identifiers, and the five sets together say **which one is which
+type** — the thing a reader actually needs to check MQTT 5.0 §3.2.2.3.
+
+### This time the tables were right, and that is the result
+
+The [acknowledgement deserializers](#the-acknowledgement-deserializers) were
+swept the same way and turned up three divergences from MQTT 5.0. These two are
+exactly the specification: 22 reason codes (§3.2.2.2), 17 properties
+(§3.2.2.3), each of the right width. A sweep that confirms conformance is a
+result, and it is asserted from the checked-in trace so that a drift under the
+pin fails the suite.
+
+### A refused connection still parses, and that is deliberate
+
+The C has a **third** status here, `MQTTServerRefused`, and it goes on to read
+the property section anyway. That is right: the Reason String that says *why*
+the broker refused is in those properties, and it is the one thing a refused
+client needs.
+
+So a refusal is `Ok` here, carrying the reason code and everything the packet
+said; `ConnAck::refused()` is the C's third status. Making it an `Err` would
+have looked tidier and thrown away the explanation.
+
+### Absent and zero are different, and the bitmap says which
+
+`fields_present` is the C's `fieldSet`, and it is not decoration. A Maximum QoS
+of **0** means the server supports QoS 0 only; an **absent** Maximum QoS means
+it supports QoS 2. The value alone cannot tell you, so the bitmap is part of
+the answer and the differential compares it.
+
+### Poison-proven on thirteen behaviours, twelve caught
+
+Any flags byte accepted; a resumed session with a refusal; a zero Receive
+Maximum; a zero Maximum Packet Size; a non-boolean flag treated as true; the
+property section bounded rather than exactly fitted; Response Information
+ungated; two properties read at the wrong width; a reason string allowed to
+repeat; a field recorded under the wrong bit; and one reason code dropped from
+the table.
+
+The thirteenth is a genuine property, and a **third** shape of one this package
+keeps meeting. Lowering the three-byte minimum to two changes no answer: two
+bytes is what the flags and reason code need, and the third is what the
+property-length decoder needs — and that decoder refuses a zero-length buffer
+by itself, **in both arms**. The size calculators' in-loop check is load-bearing
+in the C and subsumed here; the ack deserializers' property bound likewise;
+this one is redundant in the C too. Kept because it states the packet's shape in
+one place, and pinned so that stops being free the day it stops being true.
 
 ## The gate
 

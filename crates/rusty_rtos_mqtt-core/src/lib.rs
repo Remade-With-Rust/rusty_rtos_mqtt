@@ -44,8 +44,15 @@ pub mod size;
 /// Reading an acknowledgement off the wire.
 pub mod ack;
 
+/// Reading the CONNACK, which sets every limit the session then runs under.
+pub mod connack;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
+};
+pub use connack::{
+    CONNACK_MINIMUM_SIZE, ClientSettings, ConnAck, ConnAckError, SESSION_PRESENT_MASK,
+    ServerSettings, deserialize_connack,
 };
 pub use header::{
     HeaderError, MAX_REMAINING_LENGTH, PacketHeader, REMAINING_LENGTH_INVALID,

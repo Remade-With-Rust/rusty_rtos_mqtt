@@ -85,3 +85,14 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/ack_driver" > "$here/ack.trace"
 echo "wrote $(wc -l < "$here/ack.trace") lines to $here/ack.trace"
+
+# The CONNACK differential's C arm: the packet that sets every limit the rest
+# of the session runs under.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/connack_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/connack_driver.c"
+
+"$here/connack_driver" > "$here/connack.trace"
+echo "wrote $(wc -l < "$here/connack.trace") lines to $here/connack.trace"

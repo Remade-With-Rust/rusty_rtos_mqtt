@@ -1,0 +1,54 @@
+geometry cases=46
+case 0 minimum type=20 rl=3 max=1024 rri=1 in=000000 -> Success sp=0 fields=00000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=-
+case 1 session-present type=20 rl=3 max=1024 rri=1 in=010000 -> Success sp=1 fields=00000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=-
+case 2 refused-not-authorized type=20 rl=3 max=1024 rri=1 in=008700 -> ServerRefused sp=0 fields=00000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=-
+case 3 resumed-and-refused type=20 rl=3 max=1024 rri=1 in=018700 -> BadResponse
+case 4 reserved-flag-bit-1 type=20 rl=3 max=1024 rri=1 in=020000 -> BadResponse
+case 5 reserved-flag-bit-7 type=20 rl=3 max=1024 rri=1 in=800000 -> BadResponse
+case 6 unknown-reason-code type=20 rl=3 max=1024 rri=1 in=007f00 -> BadResponse
+case 7 two-byte-body type=20 rl=2 max=1024 rri=1 in=0000 -> BadResponse
+case 8 empty-body type=20 rl=0 max=1024 rri=1 in=- -> BadResponse
+case 9 session-expiry type=20 rl=8 max=1024 rri=1 in=0000051100000e10 -> Success sp=0 fields=00000004 exp=3600 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=1100000e10
+case 10 receive-maximum type=20 rl=6 max=1024 rri=1 in=000003210014 -> Success sp=0 fields=00000008 exp=0 rmax=20 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=210014
+case 11 receive-maximum-zero type=20 rl=6 max=1024 rri=1 in=000003210000 -> BadResponse
+case 12 maximum-qos-zero type=20 rl=5 max=1024 rri=1 in=0000022400 -> Success sp=0 fields=00800000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=2400
+case 13 maximum-qos-one type=20 rl=5 max=1024 rri=1 in=0000022401 -> Success sp=0 fields=00800000 exp=0 rmax=0 qos=1 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=2401
+case 14 maximum-qos-two type=20 rl=5 max=1024 rri=1 in=0000022402 -> BadResponse
+case 15 retain-unavailable type=20 rl=5 max=1024 rri=1 in=0000022500 -> Success sp=0 fields=01000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=2500
+case 16 retain-not-a-boolean type=20 rl=5 max=1024 rri=1 in=00000225ff -> BadResponse
+case 17 maximum-packet-size type=20 rl=8 max=1024 rri=1 in=0000052700010000 -> Success sp=0 fields=00000010 exp=0 rmax=0 qos=0 ret=0 mps=65536 alias=0 wild=0 subid=0 shared=0 ka=0 props=2700010000
+case 18 maximum-packet-size-zero type=20 rl=8 max=1024 rri=1 in=0000052700000000 -> BadResponse
+case 19 assigned-client-id type=20 rl=9 max=1024 rri=1 in=000006120003616263 -> Success sp=0 fields=00080000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=120003616263
+case 20 topic-alias-maximum type=20 rl=6 max=1024 rri=1 in=00000322000a -> Success sp=0 fields=00000020 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=10 wild=0 subid=0 shared=0 ka=0 props=22000a
+case 21 reason-string type=20 rl=9 max=1024 rri=1 in=0000061f0003776879 -> Success sp=0 fields=00020000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=1f0003776879
+case 22 user-property type=20 rl=10 max=1024 rri=1 in=0000072600016b000176 -> Success sp=0 fields=10000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=2600016b000176
+case 23 two-user-properties type=20 rl=17 max=1024 rri=1 in=00000e2600016100016226000163000164 -> Success sp=0 fields=10000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=2600016100016226000163000164
+case 24 wildcard-unavailable type=20 rl=5 max=1024 rri=1 in=0000022800 -> Success sp=0 fields=02000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=2800
+case 25 subscription-id-unavailable type=20 rl=5 max=1024 rri=1 in=0000022900 -> Success sp=0 fields=04000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=2900
+case 26 shared-sub-unavailable type=20 rl=5 max=1024 rri=1 in=0000022a00 -> Success sp=0 fields=08000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=2a00
+case 27 server-keep-alive type=20 rl=6 max=1024 rri=1 in=00000313003c -> Success sp=0 fields=00100000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=60 props=13003c
+case 28 server-reference type=20 rl=9 max=1024 rri=1 in=0000061c0003612e62 -> Success sp=0 fields=00400000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=1c0003612e62
+case 29 auth-method type=20 rl=9 max=1024 rri=1 in=000006150003534352 -> Success sp=0 fields=00000200 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=150003534352
+case 30 auth-data type=20 rl=8 max=1024 rri=1 in=000005160002fffe -> Success sp=0 fields=00000400 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=160002fffe
+case 31 response-info-requested type=20 rl=9 max=1024 rri=1 in=0000061a0003726573 -> Success sp=0 fields=00200000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=1a0003726573
+case 32 response-info-unrequested type=20 rl=9 max=1024 rri=0 in=0000061a0003726573 -> BadResponse
+case 33 reason-string-unrequested type=20 rl=9 max=1024 rri=0 in=0000061f0003776879 -> Success sp=0 fields=00020000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=1f0003776879
+case 34 repeated-reason-string type=20 rl=13 max=1024 rri=1 in=00000a1f000268691f0002796f -> BadResponse
+case 35 repeated-receive-maximum type=20 rl=9 max=1024 rri=1 in=000006210014210015 -> BadResponse
+case 36 unknown-property type=20 rl=5 max=1024 rri=1 in=0000027f00 -> BadResponse
+case 37 property-length-too-long type=20 rl=5 max=1024 rri=1 in=0000092400 -> BadResponse
+case 38 property-length-too-short type=20 rl=6 max=1024 rri=1 in=000002240000 -> BadResponse
+case 39 property-length-non-minimal type=20 rl=6 max=1024 rri=1 in=000080002400 -> BadResponse
+case 40 string-runs-past-the-section type=20 rl=7 max=1024 rri=1 in=0000041f000978 -> BadResponse
+case 41 a-realistic-connack type=20 rl=20 max=1024 rri=1 in=0000112100142401250127000100002a0013003c -> Success sp=0 fields=09900018 exp=0 rmax=20 qos=1 ret=1 mps=65536 alias=0 wild=0 subid=0 shared=0 ka=60 props=2100142401250127000100002a0013003c
+case 42 puback-routed-here type=40 rl=3 max=1024 rri=1 in=000000 -> BadParameter
+case 43 zero-max-packet-size type=20 rl=3 max=0 rri=1 in=000000 -> BadParameter
+case 44 exactly-at-the-maximum type=20 rl=3 max=5 rri=1 in=000000 -> Success sp=0 fields=00000000 exp=0 rmax=0 qos=0 ret=0 mps=0 alias=0 wild=0 subid=0 shared=0 ka=0 props=-
+case 45 one-byte-over-the-maximum type=20 rl=3 max=4 rri=1 in=000000 -> BadResponse
+reason-code-sweep accepted=00,80,81,82,83,84,85,86,87,88,89,8a,8c,90,95,97,99,9a,9b,9c,9d,9f n=22 success=1 refused=21 rejected=234
+property-sweep one-byte accepted=24,25,28,29,2a n=5 rejected=251
+property-sweep two-byte accepted=13,21,22 n=3 rejected=253
+property-sweep four-byte accepted=11,27 n=2 rejected=254
+property-sweep string accepted=12,15,16,1a,1c,1f n=6 rejected=250
+property-sweep user-property accepted=26 n=1 rejected=255
+end

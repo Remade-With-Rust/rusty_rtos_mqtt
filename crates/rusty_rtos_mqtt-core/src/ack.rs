@@ -442,7 +442,7 @@ fn read_packet_id(remaining_data: &[u8]) -> Result<u16, AckError> {
 /// handed. This is the one place the transcription is strictly safer rather
 /// than equal: a claimed length larger than the bytes received is a refusal
 /// here and an out-of-bounds read there.
-fn bounded(buffer: &[u8], from: usize, length: u32) -> Result<&[u8], AckError> {
+pub(crate) fn bounded(buffer: &[u8], from: usize, length: u32) -> Result<&[u8], AckError> {
     let length = usize::try_from(length).map_err(|_| AckError::BadResponse)?;
     let end = from.checked_add(length).ok_or(AckError::BadResponse)?;
     buffer.get(from..end).ok_or(AckError::BadResponse)

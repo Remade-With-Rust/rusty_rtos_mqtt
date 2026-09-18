@@ -28,3 +28,6 @@ oracle/size_driver.pdb
 oracle/ack_driver
 oracle/ack_driver.exe
 oracle/ack_driver.pdb
+oracle/connack_driver
+oracle/connack_driver.exe
+oracle/connack_driver.pdb

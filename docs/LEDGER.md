@@ -174,6 +174,50 @@ equals its body, and the over-claim is pinned on the Rust side alone by
 `a_claim_larger_than_the_buffer_is_refused`. Third instance of the category,
 after the fixed header's byte count and the property reader's budget.
 
+## Conformance (2026-09-18) — the CONNACK
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **54 / 54** | `cargo test -p rusty_rtos_mqtt-core --test connack`. C arm: `oracle/connack_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| named cases | **46** | the shape of the packet, each of the seventeen properties on its own with a real value, the two zero-limit protocol errors, the malformed property sections, a realistic multi-property CONNACK, and the routing and maximum-packet-size boundaries. |
+| what is compared per case | **the status, the session-present flag, the field bitmap, all ten server settings AND the property slice** | `fields_present` is part of the answer, not decoration: a Maximum QoS of 0 and an ABSENT Maximum QoS mean opposite things (QoS 0 only, versus QoS 2), and the value alone cannot tell them apart. |
+| single-byte sweeps | **6 x 256 calls** | the reason code, and the property identifier at each of five value SHAPES. |
+| statuses reached | **4 of 4** | Success, `MQTTServerRefused`, BadResponse, BadParameter. The third is new to this package and has its own guard assertion, because a workload that never produced it would leave a whole branch of the C untested while every line still matched. |
+| divergences from MQTT 5.0 found | **0, and that is the result** | both tables are exactly §3.2.2.2 and §3.2.2.3, asserted from the CHECKED-IN TRACE so a drift under the pin fails the suite. |
+| poison rows | **13 introduced, 12 caught** | any flags byte, a resumed session with a refusal, a zero Receive Maximum, a zero Maximum Packet Size, a non-boolean flag, the property section bounded rather than exactly fitted, Response Information ungated, two properties at the wrong width, a repeated reason string, a field under the wrong bit, and one reason code dropped. |
+
+**One sweep could not have done it.** The property identifier is one byte and so
+enumerable, but each identifier introduces a value of a different WIDTH — a body
+sized for a two-byte property is malformed for a four-byte one, both arms refuse
+for the wrong reason, and the sweep discriminates nothing. Sweeping it five
+times, once per value shape, gives five accepted sets whose union is the table
+AND whose membership says which identifier is which type:
+
+```
+one-byte      24,25,28,29,2a      two-byte   13,21,22       four-byte 11,27
+string        12,15,16,1a,1c,1f   user-prop  26                     total 17
+```
+
+**The thirteenth poison is a genuine property, and a THIRD shape of one.**
+Lowering the three-byte minimum to two changes no answer: two bytes is what the
+flags and the reason code need, and the third is what the property-length
+decoder needs — and that decoder refuses a zero-length buffer by itself, in
+**both** arms (`decodeVariableLength` answers `MQTTBadResponse` when
+`localBufferLength` is zero). The size calculators' in-loop check is load-bearing
+in the C and subsumed here because our arithmetic saturates; the ack
+deserializers' property bound is load-bearing in the C and subsumed here because
+we take a slice; **this one is redundant in the C too.** Kept because it states
+the packet's shape in one place, pinned by
+`the_three_byte_minimum_is_stated_not_load_bearing`.
+
+**A refusal is `Ok`, and that is a chosen divergence in SHAPE, not in answer.**
+The C's `MQTTServerRefused` means the packet parsed and the broker said no, and
+the C fills the out-parameters on it — because the Reason String that says why
+is in the property section. `ConnAck::refused()` is that status; making it an
+`Err` would have looked tidier and discarded the explanation, which is the one
+thing a refused client needs. The trace prints values for both statuses and
+compares them.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -189,7 +233,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 49 passed, 0 failed (17 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack) |
+| `cargo test -p rusty_rtos_mqtt-core` | 60 passed, 0 failed (25 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -206,13 +250,19 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer_private.c`, the fixed-header writers | ~180 | **remade and proven** |
 | `core_mqtt_serializer.c`, the packet-size calculators | ~300 | **remade and proven** |
 | `core_mqtt_serializer.c`, the acknowledgement deserializers | ~586 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~4,984 | not written |
+| `core_mqtt_serializer.c`, the CONNACK path | ~566 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~4,418 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **18.0 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **21.7 % remade** |
+
+The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
+void` of `LogError` calls with no observable behaviour. They are counted as not
+written rather than claimed, because a remake that produces no log line has not
+remade a logger.
 
 No speed number and no size number: nothing here has been benchmarked, and
 nothing has run on a chip.
