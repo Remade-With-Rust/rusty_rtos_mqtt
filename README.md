@@ -72,16 +72,21 @@ lives.
   `core_mqtt_serializer.c` but for its logging. Running the two readers side by
   side showed that only one of them can say "not yet", on every packet type a
   client may receive.
+- **Proven**: the MQTT 5 property builders, all of `core_mqtt_prop_serializer.c`
+  — and this is the slice that found a **buffer overflow**, by being unable to
+  reproduce it. `addPropUtf8` forgets to count the property identifier byte, so
+  it writes one past a buffer one byte too small. Six public adders go through
+  it.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The MQTT 5 property
-builders (`core_mqtt_prop_*.c`, 2,056 lines) and the connection state machine
+**Known gaps, and about half of coreMQTT.** The MQTT 5 property **reader**
+(`core_mqtt_prop_deserializer.c`, 880 lines) and the connection state machine
 (`core_mqtt.c`, 5,618 lines) are **not written**, and neither are
 `core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
 does not have. This crate can build and read every MQTT packet, off a socket or
-out of a buffer, and check every property section a client may send; it cannot
-yet run a connection.
+out of a buffer, assemble every property section a client may send and check it;
+it cannot yet run a connection.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -111,10 +116,11 @@ directions, 30 lines plus a 32-combination whole-packet sweep with the CONNECT,
 25 lines across three serializers with the outgoing PUBLISH, 45 lines with
 SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, 20 lines comparing
 the transport reader CALL FOR CALL, 94 lines across the six outgoing property
-validators — 36 of them sweeps — and 56 lines finishing the file, which run the
-library's TWO header readers side by side — all at the pinned v5.0.2. **44.3 %
-of the library, and every function in `core_mqtt_serializer.c` but its two
-logging ones is remade.** 139 tests. **This crate reads every packet a broker can send, off a socket or
+validators — 36 of them sweeps — 56 lines finishing that file, which run the
+library's TWO header readers side by side, and 73 lines across the MQTT 5
+property builders — all at the pinned v5.0.2. **51.8 % of the library, and both
+`core_mqtt_serializer.c` and `core_mqtt_prop_serializer.c` are remade but for
+two logging functions.** 146 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1171,6 +1177,79 @@ to deduplicate all nine, and given the wrong status for a foreign identifier; a
 fresh context zeroed; the builder made to accept an empty buffer; and the three
 checks in the parameter validator, one of them corrected to what the
 specification says.
+
+## The MQTT 5 property builders
+
+**73 trace lines agree with `core_mqtt_prop_serializer.c` — except for three,
+and those three are the finding.**
+
+This is where an application assembles a property section one property at a
+time: five primitives, eighteen adders over them, and a 199-line table saying
+which property may go in which packet.
+
+### A buffer overflow, found by being unable to reproduce it
+
+Every slice before this one transcribed the C exactly, divergences from MQTT 5.0
+included, because the C is the oracle. **This one cannot.**
+
+`addPropUint8`, `addPropUint16` and `addPropUint32` each check for the
+identifier byte plus the value. `addPropUtf8` checks for the two length bytes
+plus the body and **forgets the identifier**, then writes it. Given a buffer
+exactly one byte too small it answers `MQTTSuccess` and writes one byte past the
+end:
+
+```
+add 38 utf8-in-four-bytes cap=4 | content-type(-,-)->Success index=5 ... OVERFLOW
+```
+
+Six public adders route through it — authentication method and data, response
+topic, correlation data, content type and reason string. This crate writes
+through a `&mut [u8]` under `forbid(unsafe)`, so it answers `NoMemory` and
+writes nothing. The differential's rule becomes: **every line matches, except
+that every line the C marked `OVERFLOW` must be one where we refused, and there
+may be no other difference** — an exception that is itself bounded by a test.
+
+Drafted in `docs/upstream/`.
+
+### Two poisons that could not fire, and the property they proved
+
+Sizing a four-byte property as 4 instead of 5, and sizing a string property the
+way `addPropUtf8` does, **changed no answer at all**. They cannot: the size
+check is advisory here and the slice bound is the guarantee. A C builder has one
+bound, and one byte of arithmetic error in it is a one-byte out-of-bounds write.
+
+That property is now pinned by a sweep of every adder against every buffer size
+from 1 to 23, asserting the two things that hold whatever the arithmetic says:
+the cursor never passes the buffer, and a refusal writes nothing.
+
+### A fourth copy of which property may go in which packet
+
+`isValidPropertyInPacketType` is `static`, so it can only be asked through the
+eighteen adders — which is what the differential does, for all 256 packet-type
+bytes, printing the accepted set per type:
+
+```
+allowed publish     type=30 props=payload-format,message-expiry,topic-alias,response-topic,
+                                  correlation-data,content-type,subscription-id,user-prop
+allowed subscribe   type=82 props=subscription-id,user-prop
+allowed unsubscribe type=a2 props=user-prop
+allowed pingreq     type=c0 props=-
+```
+
+It disagrees with the validators' tables in one place: **a PUBLISH is allowed a
+Subscription Identifier**, which [MQTT-3.3.4-6] forbids a client to send and
+which `validate_publish_properties` refuses. The C's own comment beside that arm
+says "only in server-to-client PUBLISH" and the next line sets the bit.
+
+### And the cross-slice check that matters most
+
+A section this crate **builds** is a section this crate **validates**: the bytes
+go straight from the builder into the validator that decides whether they may be
+sent. Two arms that each agree with the C can still disagree with each other.
+
+### Poison-proven on fourteen behaviours, twelve caught
+
+The two that could not fire are the pair above, and they became a test.
 
 ## The gate
 

@@ -278,6 +278,10 @@ typedef struct
 #define V_HUGE        4
 #define V_HUGE_OVER   5
 
+static const char * const V_NAMES[] = {
+    "-", "zero", "wildcard", "empty", "max", "over"
+};
+
 static MQTTStatus_t run_step( const Step_t *step, MQTTPropBuilder_t *builder )
 {
     const uint8_t *type = step->withType ? &step->packetType : NULL;
@@ -431,10 +435,23 @@ static void run_add_case( size_t i )
     {
         MQTTStatus_t status = run_step( &c->step[ step ], &builder );
 
-        printf( " | %s(%s%s)->%s", P_NAMES[ c->step[ step ].which ],
-                c->step[ step ].variant == V_ORDINARY ? "" : "odd",
-                c->step[ step ].withType ? ",typed" : "",
-                status_name( status ) );
+        /* The line carries its own inputs -- the adder, which odd value if
+         * any, and the packet type if one was passed -- so the Rust arm
+         * replays from the trace rather than keeping a second copy of this
+         * table. */
+        if( c->step[ step ].withType )
+        {
+            printf( " | %s(%s,%02x)->%s", P_NAMES[ c->step[ step ].which ],
+                    V_NAMES[ c->step[ step ].variant ],
+                    ( unsigned ) c->step[ step ].packetType,
+                    status_name( status ) );
+        }
+        else
+        {
+            printf( " | %s(%s,-)->%s", P_NAMES[ c->step[ step ].which ],
+                    V_NAMES[ c->step[ step ].variant ],
+                    status_name( status ) );
+        }
     }
 
     printf( " index=%u fieldset=%08x bytes=", ( unsigned ) builder.currentIndex,

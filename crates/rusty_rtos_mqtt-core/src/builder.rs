@@ -850,6 +850,72 @@ impl<'a> PropertyBuilder<'a> {
 mod tests {
     use super::*;
 
+    /// **The size check is advisory; the slice is the guarantee.**
+    ///
+    /// This began as two poisons that did not fire. Sizing a four-byte property
+    /// as 4 instead of 5, and a string property as `length + 2` instead of
+    /// `length + 3` — which is *exactly* the arithmetic that makes
+    /// `addPropUtf8` write past its buffer — changed no answer here. Both still
+    /// refuse; they just refuse from `get_mut` rather than from the size check.
+    ///
+    /// So the property is worth stating: this crate has **two** independent
+    /// bounds on every write, and the second one is not code that can be got
+    /// wrong. A C builder has one, and a one-byte slip in it is a one-byte
+    /// out-of-bounds write.
+    ///
+    /// Proven by sweeping every adder against every buffer size it could
+    /// plausibly meet, and asserting the two things that must hold whatever the
+    /// arithmetic says: the cursor never passes the buffer, and a refusal
+    /// writes nothing.
+    #[test]
+    fn no_arithmetic_error_can_write_past_the_slice() {
+        for capacity in 1..24usize {
+            for which in 0..18usize {
+                let mut bytes = vec![0xAAu8; capacity];
+                let before = bytes.clone();
+                let mut builder = PropertyBuilder::new(&mut bytes).unwrap();
+
+                let long = [b'x'; 12];
+                let result = match which {
+                    0 => builder.session_expiry(30, None),
+                    1 => builder.receive_max(10, None),
+                    2 => builder.max_packet_size(1024, None),
+                    3 => builder.topic_alias_max(5, None),
+                    4 => builder.request_response_info(true, None),
+                    5 => builder.request_problem_info(true, None),
+                    6 => builder.auth_method(&long, None),
+                    7 => builder.payload_format(true, None),
+                    8 => builder.message_expiry(60, None),
+                    9 => builder.will_delay(15, None),
+                    10 => builder.topic_alias(7, None),
+                    11 => builder.response_topic(&long, None),
+                    12 => builder.correlation_data(&long, None),
+                    13 => builder.content_type(&long, None),
+                    14 => builder.reason_string(&long, None),
+                    15 => builder.subscription_id(70_000, None),
+                    16 => builder.user_property(b"key", b"value", None),
+                    _ => builder.auth_method(b"a", None),
+                };
+
+                let written = builder.len();
+                let capacity_now = builder.capacity();
+
+                assert!(
+                    written <= capacity_now,
+                    "adder {which} wrote {written} bytes into {capacity_now}"
+                );
+
+                if result.is_err() {
+                    assert_eq!(written, 0, "adder {which} refused and still moved on");
+                    assert_eq!(
+                        bytes, before,
+                        "adder {which} refused and still changed the buffer"
+                    );
+                }
+            }
+        }
+    }
+
     /// The bound is the first illegal remaining length, and nothing below it.
     ///
     /// The C checks `length >= MQTT_REMAINING_LENGTH_INVALID` on a length

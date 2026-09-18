@@ -586,6 +586,61 @@ to the house constant rather than five checked-in traces being regenerated. The
 note in `tests/connect.rs` that predicted exactly this is why it took one run to
 find.
 
+## Conformance (2026-09-18) — the MQTT 5 property builders
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **70 / 73, and 3 refused on purpose** | `cargo test -p rusty_rtos_mqtt-core --test propbuild`. C arm: `oracle/propbuild_driver.c` driving `core_mqtt_prop_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| packet-type table | **256 types x 18 adders = 4,608 calls** | `isValidPropertyInPacketType` is `static`, so it is asked through the public adders. Sixteen named types printed, all 256 digested. |
+| named cases | **54** | every adder once, every width at and below the buffer it needs, every value each adder refuses itself, the repeats, and the table through seven packet types. |
+| poison rows | **14 introduced, 12 caught** | the two that could not fire are the finding below. |
+
+**A buffer overflow, found by being unable to reproduce it.** `addPropUint8`,
+`addPropUint16` and `addPropUint32` size themselves as the identifier byte plus
+the value. `addPropUtf8` sizes itself as the two length bytes plus the body and
+**forgets the identifier**, then writes it — so a buffer of exactly
+`propertyLength + 2` gets `MQTTSuccess` and one byte past its end. Six public
+adders route through it. This arm writes through a `&mut [u8]` under
+`forbid(unsafe)` and answers `NoMemory`, so three trace lines cannot match:
+
+```
+add 38 utf8-in-four-bytes cap=4 | content-type(-,-)->Success index=5 ... OVERFLOW
+```
+
+This is the **first** place in K7 where the transcription rule — reproduce the C
+exactly, divergences included — could not be followed, and the reason it could
+not is the reason the project exists. Drafted in
+`kairos-upstream/drafts/coremqtt-addproputf8-off-by-one.md`.
+
+**The two poisons that could not fire, and the property they proved.** Sizing a
+four-byte property as 4 instead of 5, and sizing a string property the way
+`addPropUtf8` does, changed **no answer at all**. Both still refuse; they refuse
+from `get_mut` instead of from the size check. So this crate has **two
+independent bounds on every write**, and the second is not code that can be got
+wrong. Kind (b) of the four kinds of silent poison — a genuine property — and it
+is pinned by `no_arithmetic_error_can_write_past_the_slice`, a sweep of every
+adder against every buffer size from 1 to 23 asserting that the cursor never
+passes the buffer and that a refusal writes nothing.
+
+**The guard, twenty-third shape: an exception must be smaller than the rule.**
+A documented exception is a hole in a comparison, so `the_exception_is_bounded`
+checks it from both ends: exactly three lines, every one of them a line the C
+itself marked, every one a four-byte buffer accepting a five-byte write, and
+more than sixty lines still compared without exception.
+
+**A fourth copy of which property may go in which packet**, and it disagrees
+with the third: the builder's table allows a **Subscription Identifier in a
+PUBLISH**, which [MQTT-3.3.4-6] forbids a client to send and
+`MQTT_ValidatePublishProperties` refuses. The C's comment beside that arm says
+"only in server-to-client PUBLISH" and the next line sets the bit. In the same
+draft.
+
+**And the cross-slice check.** A section this crate builds is a section this
+crate validates: `what_the_builder_writes_the_validator_accepts` runs the bytes
+straight from the builder into the CONNECT and will validators. Two arms that
+each agree with the C can still disagree with each other — the shape the
+packet-size calculators and the writers established in slice 5.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -601,7 +656,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 139 passed, 0 failed (73 unit, 11 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context) |
+| `cargo test -p rusty_rtos_mqtt-core` | 146 passed, 0 failed (74 unit, 12 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -629,11 +684,11 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the context, the constructors and the parameter validator | 230 | **remade and proven** |
 | `core_mqtt_serializer.c`, the rest | ~870 | not written: two logging functions (165 lines) and the file's preamble. **Every other function in the file is remade** — checked against the file's function list, not against how complete the last slice felt. |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
-| `core_mqtt_prop_serializer.c` | 1,176 | not written |
+| `core_mqtt_prop_serializer.c` | 1,176 | **remade and proven** |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **44.3 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **51.8 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

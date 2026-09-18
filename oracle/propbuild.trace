@@ -16,58 +16,58 @@ allowed disconnect type=e0 mask=28001 props=session-expiry,reason-string,user-pr
 allowed auth type=f0 mask=280c0 props=auth-method,auth-data,reason-string,user-prop
 allowed unknown-00 type=00 mask=00000 props=-
 allowed-sweep types=256 digest=71e3577c6c03b0b2
-add 0 session-expiry cap=32 | session-expiry()->Success index=5 fieldset=00000004 bytes=110000001e
-add 1 receive-max cap=32 | receive-max()->Success index=3 fieldset=00000008 bytes=21000a
-add 2 max-packet-size cap=32 | max-packet-size()->Success index=5 fieldset=00000010 bytes=2700000400
-add 3 topic-alias-max cap=32 | topic-alias-max()->Success index=3 fieldset=00000020 bytes=220005
-add 4 request-resp cap=32 | request-resp-info()->Success index=2 fieldset=00000040 bytes=1901
-add 5 request-prob cap=32 | request-prob-info()->Success index=2 fieldset=00000080 bytes=1701
-add 6 auth-method cap=32 | auth-method()->Success index=5 fieldset=00000200 bytes=1500026162
-add 7 payload-format cap=32 | payload-format()->Success index=2 fieldset=00000800 bytes=0101
-add 8 message-expiry cap=32 | message-expiry()->Success index=5 fieldset=00001000 bytes=020000003c
-add 9 will-delay cap=32 | will-delay()->Success index=5 fieldset=00040000 bytes=180000000f
-add 10 topic-alias cap=32 | topic-alias()->Success index=3 fieldset=00002000 bytes=230007
-add 11 response-topic cap=32 | response-topic()->Success index=5 fieldset=00004000 bytes=0800026162
-add 12 correlation-data cap=32 | correlation-data()->Success index=5 fieldset=00008000 bytes=0900026162
-add 13 content-type cap=32 | content-type()->Success index=5 fieldset=00010000 bytes=0300026162
-add 14 reason-string cap=32 | reason-string()->Success index=5 fieldset=00020000 bytes=1f00026162
-add 15 subscription-id cap=32 | subscription-id()->Success index=2 fieldset=00000002 bytes=0b03
-add 16 user-prop cap=32 | user-prop()->Success index=7 fieldset=00000000 bytes=2600016b000176
-add 17 auth-data-alone cap=32 | auth-data()->BadParameter index=0 fieldset=00000000 bytes=-
-add 18 auth-method-then-data cap=32 | auth-method()->Success | auth-data()->Success index=10 fieldset=00000600 bytes=15000261621600026162
-add 19 session-expiry-twice cap=32 | session-expiry()->Success | session-expiry()->BadParameter index=5 fieldset=00000004 bytes=110000001e
-add 20 user-prop-twice cap=32 | user-prop()->Success | user-prop()->Success index=14 fieldset=00000000 bytes=2600016b0001762600016b000176
-add 21 receive-max-zero cap=32 | receive-max(odd)->BadParameter index=0 fieldset=00000000 bytes=-
-add 22 max-packet-zero cap=32 | max-packet-size(odd)->BadParameter index=0 fieldset=00000000 bytes=-
-add 23 topic-alias-zero cap=32 | topic-alias(odd)->BadParameter index=0 fieldset=00000000 bytes=-
-add 24 subscription-id-zero cap=32 | subscription-id(odd)->BadParameter index=0 fieldset=00000000 bytes=-
-add 25 subscription-id-at-the-maximum cap=32 | subscription-id(odd)->Success index=5 fieldset=00000002 bytes=0bffffff7f
-add 26 subscription-id-one-over cap=32 | subscription-id(odd)->BadParameter index=0 fieldset=00000000 bytes=-
-add 27 response-topic-wildcard cap=32 | response-topic(odd)->BadParameter index=0 fieldset=00000000 bytes=-
-add 28 reason-string-empty cap=32 | reason-string(odd)->BadParameter index=0 fieldset=00000000 bytes=-
-add 29 content-type-empty cap=32 | content-type(odd)->BadParameter index=0 fieldset=00000000 bytes=-
-add 30 user-prop-empty-value cap=32 | user-prop(odd)->BadParameter index=0 fieldset=00000000 bytes=-
-add 31 uint8-in-two-bytes cap=2 | payload-format()->Success index=2 fieldset=00000800 bytes=0101
-add 32 uint8-in-one-byte cap=1 | payload-format()->NoMemory index=0 fieldset=00000000 bytes=-
-add 33 uint16-in-three-bytes cap=3 | topic-alias()->Success index=3 fieldset=00002000 bytes=230007
-add 34 uint16-in-two-bytes cap=2 | topic-alias()->NoMemory index=0 fieldset=00000000 bytes=-
-add 35 uint32-in-five-bytes cap=5 | session-expiry()->Success index=5 fieldset=00000004 bytes=110000001e
-add 36 uint32-in-four-bytes cap=4 | session-expiry()->NoMemory index=0 fieldset=00000000 bytes=-
-add 37 utf8-in-five-bytes cap=5 | content-type()->Success index=5 fieldset=00010000 bytes=0300026162
-add 38 utf8-in-four-bytes cap=4 | content-type()->Success index=5 fieldset=00010000 bytes=0300026162 OVERFLOW
-add 39 auth-method-in-four-bytes cap=4 | auth-method()->Success index=5 fieldset=00000200 bytes=1500026162 OVERFLOW
-add 40 reason-string-in-four-bytes cap=4 | reason-string()->Success index=5 fieldset=00020000 bytes=1f00026162 OVERFLOW
-add 41 user-prop-in-seven-bytes cap=7 | user-prop()->Success index=7 fieldset=00000000 bytes=2600016b000176
-add 42 user-prop-in-six-bytes cap=6 | user-prop()->NoMemory index=0 fieldset=00000000 bytes=-
-add 43 subscription-id-in-two-bytes cap=2 | subscription-id()->Success index=2 fieldset=00000002 bytes=0b03
-add 44 subscription-id-in-one-byte cap=1 | subscription-id()->NoMemory index=0 fieldset=00000000 bytes=-
-add 45 two-then-full cap=6 | payload-format()->Success | topic-alias()->Success | session-expiry()->NoMemory index=5 fieldset=00002800 bytes=0101230007
-add 46 will-delay-in-connect cap=32 | will-delay(,typed)->Success index=5 fieldset=00040000 bytes=180000000f
-add 47 will-delay-in-publish cap=32 | will-delay(,typed)->BadParameter index=0 fieldset=00000000 bytes=-
-add 48 topic-alias-in-publish cap=32 | topic-alias(,typed)->Success index=3 fieldset=00002000 bytes=230007
-add 49 topic-alias-in-connect cap=32 | topic-alias(,typed)->BadParameter index=0 fieldset=00000000 bytes=-
-add 50 reason-string-in-puback cap=32 | reason-string(,typed)->Success index=5 fieldset=00020000 bytes=1f00026162
-add 51 reason-string-in-subscribe cap=32 | reason-string(,typed)->BadParameter index=0 fieldset=00000000 bytes=-
-add 52 user-prop-in-pingreq cap=32 | user-prop(,typed)->BadParameter index=0 fieldset=00000000 bytes=-
-add 53 a-connect-section cap=32 | session-expiry(,typed)->Success | receive-max(,typed)->Success | max-packet-size(,typed)->Success | user-prop(,typed)->Success index=20 fieldset=0000001c bytes=110000001e21000a27000004002600016b000176
+add 0 session-expiry cap=32 | session-expiry(-,-)->Success index=5 fieldset=00000004 bytes=110000001e
+add 1 receive-max cap=32 | receive-max(-,-)->Success index=3 fieldset=00000008 bytes=21000a
+add 2 max-packet-size cap=32 | max-packet-size(-,-)->Success index=5 fieldset=00000010 bytes=2700000400
+add 3 topic-alias-max cap=32 | topic-alias-max(-,-)->Success index=3 fieldset=00000020 bytes=220005
+add 4 request-resp cap=32 | request-resp-info(-,-)->Success index=2 fieldset=00000040 bytes=1901
+add 5 request-prob cap=32 | request-prob-info(-,-)->Success index=2 fieldset=00000080 bytes=1701
+add 6 auth-method cap=32 | auth-method(-,-)->Success index=5 fieldset=00000200 bytes=1500026162
+add 7 payload-format cap=32 | payload-format(-,-)->Success index=2 fieldset=00000800 bytes=0101
+add 8 message-expiry cap=32 | message-expiry(-,-)->Success index=5 fieldset=00001000 bytes=020000003c
+add 9 will-delay cap=32 | will-delay(-,-)->Success index=5 fieldset=00040000 bytes=180000000f
+add 10 topic-alias cap=32 | topic-alias(-,-)->Success index=3 fieldset=00002000 bytes=230007
+add 11 response-topic cap=32 | response-topic(-,-)->Success index=5 fieldset=00004000 bytes=0800026162
+add 12 correlation-data cap=32 | correlation-data(-,-)->Success index=5 fieldset=00008000 bytes=0900026162
+add 13 content-type cap=32 | content-type(-,-)->Success index=5 fieldset=00010000 bytes=0300026162
+add 14 reason-string cap=32 | reason-string(-,-)->Success index=5 fieldset=00020000 bytes=1f00026162
+add 15 subscription-id cap=32 | subscription-id(-,-)->Success index=2 fieldset=00000002 bytes=0b03
+add 16 user-prop cap=32 | user-prop(-,-)->Success index=7 fieldset=00000000 bytes=2600016b000176
+add 17 auth-data-alone cap=32 | auth-data(-,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 18 auth-method-then-data cap=32 | auth-method(-,-)->Success | auth-data(-,-)->Success index=10 fieldset=00000600 bytes=15000261621600026162
+add 19 session-expiry-twice cap=32 | session-expiry(-,-)->Success | session-expiry(-,-)->BadParameter index=5 fieldset=00000004 bytes=110000001e
+add 20 user-prop-twice cap=32 | user-prop(-,-)->Success | user-prop(-,-)->Success index=14 fieldset=00000000 bytes=2600016b0001762600016b000176
+add 21 receive-max-zero cap=32 | receive-max(zero,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 22 max-packet-zero cap=32 | max-packet-size(zero,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 23 topic-alias-zero cap=32 | topic-alias(zero,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 24 subscription-id-zero cap=32 | subscription-id(zero,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 25 subscription-id-at-the-maximum cap=32 | subscription-id(max,-)->Success index=5 fieldset=00000002 bytes=0bffffff7f
+add 26 subscription-id-one-over cap=32 | subscription-id(over,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 27 response-topic-wildcard cap=32 | response-topic(wildcard,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 28 reason-string-empty cap=32 | reason-string(empty,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 29 content-type-empty cap=32 | content-type(empty,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 30 user-prop-empty-value cap=32 | user-prop(empty,-)->BadParameter index=0 fieldset=00000000 bytes=-
+add 31 uint8-in-two-bytes cap=2 | payload-format(-,-)->Success index=2 fieldset=00000800 bytes=0101
+add 32 uint8-in-one-byte cap=1 | payload-format(-,-)->NoMemory index=0 fieldset=00000000 bytes=-
+add 33 uint16-in-three-bytes cap=3 | topic-alias(-,-)->Success index=3 fieldset=00002000 bytes=230007
+add 34 uint16-in-two-bytes cap=2 | topic-alias(-,-)->NoMemory index=0 fieldset=00000000 bytes=-
+add 35 uint32-in-five-bytes cap=5 | session-expiry(-,-)->Success index=5 fieldset=00000004 bytes=110000001e
+add 36 uint32-in-four-bytes cap=4 | session-expiry(-,-)->NoMemory index=0 fieldset=00000000 bytes=-
+add 37 utf8-in-five-bytes cap=5 | content-type(-,-)->Success index=5 fieldset=00010000 bytes=0300026162
+add 38 utf8-in-four-bytes cap=4 | content-type(-,-)->Success index=5 fieldset=00010000 bytes=0300026162 OVERFLOW
+add 39 auth-method-in-four-bytes cap=4 | auth-method(-,-)->Success index=5 fieldset=00000200 bytes=1500026162 OVERFLOW
+add 40 reason-string-in-four-bytes cap=4 | reason-string(-,-)->Success index=5 fieldset=00020000 bytes=1f00026162 OVERFLOW
+add 41 user-prop-in-seven-bytes cap=7 | user-prop(-,-)->Success index=7 fieldset=00000000 bytes=2600016b000176
+add 42 user-prop-in-six-bytes cap=6 | user-prop(-,-)->NoMemory index=0 fieldset=00000000 bytes=-
+add 43 subscription-id-in-two-bytes cap=2 | subscription-id(-,-)->Success index=2 fieldset=00000002 bytes=0b03
+add 44 subscription-id-in-one-byte cap=1 | subscription-id(-,-)->NoMemory index=0 fieldset=00000000 bytes=-
+add 45 two-then-full cap=6 | payload-format(-,-)->Success | topic-alias(-,-)->Success | session-expiry(-,-)->NoMemory index=5 fieldset=00002800 bytes=0101230007
+add 46 will-delay-in-connect cap=32 | will-delay(-,10)->Success index=5 fieldset=00040000 bytes=180000000f
+add 47 will-delay-in-publish cap=32 | will-delay(-,30)->BadParameter index=0 fieldset=00000000 bytes=-
+add 48 topic-alias-in-publish cap=32 | topic-alias(-,30)->Success index=3 fieldset=00002000 bytes=230007
+add 49 topic-alias-in-connect cap=32 | topic-alias(-,10)->BadParameter index=0 fieldset=00000000 bytes=-
+add 50 reason-string-in-puback cap=32 | reason-string(-,40)->Success index=5 fieldset=00020000 bytes=1f00026162
+add 51 reason-string-in-subscribe cap=32 | reason-string(-,82)->BadParameter index=0 fieldset=00000000 bytes=-
+add 52 user-prop-in-pingreq cap=32 | user-prop(-,c0)->BadParameter index=0 fieldset=00000000 bytes=-
+add 53 a-connect-section cap=32 | session-expiry(-,10)->Success | receive-max(-,10)->Success | max-packet-size(-,10)->Success | user-prop(-,10)->Success index=20 fieldset=0000001c bytes=110000001e21000a27000004002600016b000176
 end

@@ -455,3 +455,56 @@ fn arbitrary_connect_properties_never_panic() {
         let _ = update_with_connect_props(&bytes, &mut context);
     }
 }
+
+// ---------------------------------------------------------------------------
+// The property builders.
+//
+// These write into a buffer the application owns, from values the application
+// chooses -- and the C's equivalent writes one byte past that buffer when it is
+// exactly one byte too small. This gate asserts the property that makes the
+// same slip impossible here: whatever the arithmetic says, the cursor never
+// passes the slice and a refusal writes nothing.
+
+use rusty_rtos_mqtt_core::builder::PropertyBuilder;
+
+/// Arbitrary property sections, built into arbitrary buffers.
+#[test]
+fn building_into_any_buffer_never_writes_past_it() {
+    let mut rng = Lcg::new(17);
+
+    for _ in 0..100_000 {
+        let capacity = rng.below(20) as usize;
+        let mut bytes = vec![0xAAu8; capacity];
+
+        let Ok(mut builder) = PropertyBuilder::new(&mut bytes) else {
+            continue;
+        };
+
+        for _ in 0..6 {
+            let length = rng.below(10) as usize;
+            let text: Vec<u8> = (0..length).map(|_| b'x').collect();
+
+            let _ = match rng.below(8) {
+                0 => builder.session_expiry(rng.next(), None),
+                1 => builder.topic_alias((rng.next() >> 16) as u16 | 1, None),
+                2 => builder.payload_format(rng.below(2) == 1, None),
+                3 => builder.content_type(&text, None),
+                4 => builder.reason_string(&text, None),
+                5 => builder.subscription_id(rng.below(300_000) | 1, None),
+                6 => builder.user_property(&text, b"v", None),
+                _ => builder.correlation_data(&text, None),
+            };
+
+            assert!(
+                builder.len() <= builder.capacity(),
+                "wrote {} bytes into {}",
+                builder.len(),
+                builder.capacity()
+            );
+        }
+
+        // Nothing beyond the cursor was touched.
+        let written = builder.len();
+        assert!(bytes[written..].iter().all(|byte| *byte == 0xAA));
+    }
+}
