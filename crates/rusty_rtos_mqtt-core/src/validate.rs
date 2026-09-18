@@ -53,7 +53,9 @@
 //! cross-property rule needs cases.
 
 use crate::header::REMAINING_LENGTH_INVALID;
+use crate::outpublish::OutgoingPublish;
 use crate::property::{PropertyError, PropertyReader};
+use crate::state::QoS;
 
 /// Why an outgoing property section was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -537,6 +539,70 @@ pub fn validate_unsubscribe_properties(properties: &[u8]) -> Result<(), Validate
     Ok(())
 }
 
+/// `MQTT_ValidatePublishParams`: the six things an outgoing PUBLISH is checked
+/// against before it is sized or serialized.
+///
+/// Not a property table — the packet's own fields, against the limits the
+/// broker announced in its CONNACK.
+///
+/// # It enforces the rule the reading side does not
+///
+/// A zero-length topic name with no Topic Alias is refused here, which is
+/// [MQTT-3.3.2-8]; [`publish`](crate::publish) accepts exactly that coming in.
+/// The same shape as the three divergences in the module note, pointing the
+/// other way, and evidence that the rule is known to the library.
+///
+/// # And one it gets wrong
+///
+/// The QoS check is `qos != 0 && max_qos == 0`, so it refuses QoS 1 and 2 when
+/// the broker said Maximum QoS **0** and lets **QoS 2 through when the broker
+/// said Maximum QoS 1**. [MQTT-3.2.2-11] forbids sending above the announced
+/// maximum, and a broker that means it answers `0x9B` and drops the session.
+/// Transcribed, pinned by
+/// [`a_qos_above_the_maximum_is_only_refused_at_zero`](self), and drafted for
+/// upstream.
+///
+/// # Errors
+///
+/// [`ValidateError::BadParameter`], which is the only status this function has:
+/// retain when the broker does not support it, a QoS above zero when the broker
+/// supports none, an empty topic name with no alias, a topic name longer than
+/// 65,535 bytes, or a maximum packet size of zero.
+pub fn validate_publish_params(
+    publish: &OutgoingPublish<'_>,
+    retain_available: u8,
+    max_qos: u8,
+    topic_alias: u16,
+    max_packet_size: u32,
+) -> Result<(), ValidateError> {
+    if publish.retain && retain_available == 0 {
+        return Err(ValidateError::BadParameter);
+    }
+
+    // The defect: `max_qos == 0`, not `qos > max_qos`.
+    if publish.qos != QoS::AtMostOnce && max_qos == 0 {
+        return Err(ValidateError::BadParameter);
+    }
+
+    // [MQTT-3.3.2-8]. The alias is the caller's, not the property section's,
+    // because a section is not parsed here.
+    if topic_alias == 0 && publish.topic_name.is_empty() {
+        return Err(ValidateError::BadParameter);
+    }
+
+    // The C follows it with `pTopicName == NULL && topicNameLength != 0`, which
+    // a `&[u8]` cannot be: two numbers that must agree, carried as one.
+    if u16::try_from(publish.topic_name.len()).is_err() {
+        return Err(ValidateError::BadParameter);
+    }
+
+    if max_packet_size == 0 {
+        return Err(ValidateError::BadParameter);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -747,6 +813,81 @@ mod tests {
         assert_eq!(
             validate_publish_ack_properties(&[0x11, 0x00, 0x00, 0x0E, 0x10]),
             Err(ValidateError::BadParameter)
+        );
+    }
+
+    /// A QoS above the broker's maximum is refused only when the maximum is
+    /// zero.
+    ///
+    /// The C's check is `qos != 0 && maxQos == 0`. So QoS 2 to a broker that
+    /// announced Maximum QoS 1 is a protocol error the library builds, sends
+    /// and is disconnected for. Drafted for upstream; transcribed here.
+    #[test]
+    fn a_qos_above_the_maximum_is_only_refused_at_zero() {
+        let publish = |qos| OutgoingPublish {
+            qos,
+            dup: false,
+            retain: false,
+            topic_name: b"a",
+            payload: b"",
+            properties: b"",
+        };
+
+        // What it does catch.
+        for qos in [QoS::AtLeastOnce, QoS::ExactlyOnce] {
+            assert_eq!(
+                validate_publish_params(&publish(qos), 1, 0, 0, 1024),
+                Err(ValidateError::BadParameter)
+            );
+        }
+
+        // And what it does not: QoS 2 where the broker allows at most 1.
+        assert_eq!(
+            validate_publish_params(&publish(QoS::ExactlyOnce), 1, 1, 0, 1024),
+            Ok(()),
+            "the library now refuses a QoS above the announced maximum"
+        );
+    }
+
+    /// The outgoing side enforces [MQTT-3.3.2-8]; the incoming side does not.
+    ///
+    /// A zero-length topic name needs a Topic Alias. The reader accepts the
+    /// same packet, and the application is handed a message with no topic and
+    /// no alias to resolve one — which is the first defect in
+    /// `coremqtt-publish-protocol-errors.md`, seen from the side that gets it
+    /// right.
+    #[test]
+    fn an_empty_topic_needs_an_alias_going_out_and_not_coming_in() {
+        let empty = OutgoingPublish {
+            qos: QoS::AtMostOnce,
+            dup: false,
+            retain: false,
+            topic_name: b"",
+            payload: b"",
+            properties: b"",
+        };
+
+        assert_eq!(
+            validate_publish_params(&empty, 1, 2, 0, 1024),
+            Err(ValidateError::BadParameter)
+        );
+        assert_eq!(
+            validate_publish_params(&empty, 1, 2, 1, 1024),
+            Ok(()),
+            "an alias makes the empty topic name legal"
+        );
+
+        // The same packet read back: a zero-length topic name, no alias, and
+        // one byte of payload -- the shape from the upstream draft.
+        let mut body = vec![0x00, 0x00, 0x00, 0x70];
+        let packet = crate::ack::PacketInfo {
+            packet_type: 0x30,
+            remaining_length: u32::try_from(body.len()).unwrap(),
+            remaining_data: &mut body,
+        };
+        assert!(
+            crate::publish::deserialize_publish(&packet, 1024, 10).is_ok(),
+            "the reader now refuses an empty topic name with no alias"
         );
     }
 

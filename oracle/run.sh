@@ -174,3 +174,16 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/validate_driver" > "$here/validate.trace"
 echo "wrote $(wc -l < "$here/validate.trace") lines to $here/validate.trace"
+
+# The connection-context differential's C arm: the last of
+# `core_mqtt_serializer.c` -- the two constructors, the context filler, the
+# outgoing PUBLISH's parameter validator, and the BUFFERED twin of the
+# transport reader, driven side by side with the callback-driven one.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/context_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/context_driver.c"
+
+"$here/context_driver" > "$here/context.trace"
+echo "wrote $(wc -l < "$here/context.trace") lines to $here/context.trace"

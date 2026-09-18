@@ -52,3 +52,6 @@ oracle/reader_driver.pdb
 oracle/validate_driver
 oracle/validate_driver.exe
 oracle/validate_driver.pdb
+oracle/context_driver
+oracle/context_driver.exe
+oracle/context_driver.pdb

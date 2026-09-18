@@ -1,0 +1,56 @@
+geometry reads=13 contexts=17
+dual 0 pingresp avail=2 bytes=d000 -> process=Success type=d0 rl=0 hl=2 | get=Success type=d0 rl=0 calls=2
+dual 1 puback avail=3 bytes=400200 -> process=Success type=40 rl=2 hl=2 | get=Success type=40 rl=2 calls=2
+dual 2 two-byte-length avail=3 bytes=308001 -> process=Success type=30 rl=128 hl=3 | get=Success type=30 rl=128 calls=3
+dual 3 three-byte-length avail=4 bytes=30ffff7f -> process=Success type=30 rl=2097151 hl=4 | get=Success type=30 rl=2097151 calls=4
+dual 4 four-byte-length avail=5 bytes=30ffffff7f -> process=Success type=30 rl=268435455 hl=5 | get=Success type=30 rl=268435455 calls=5
+dual 5 nothing-available avail=0 bytes=- -> process=NoDataAvailable | get=NoDataAvailable calls=1
+dual 6 type-byte-only avail=1 bytes=30 -> process=NeedMoreBytes | get=BadResponse calls=2
+dual 7 two-of-a-three-byte-length avail=2 bytes=308001 -> process=NeedMoreBytes | get=BadResponse calls=3
+dual 8 type-connect-is-client-only avail=2 bytes=1000 -> process=BadResponse | get=BadResponse calls=1
+dual 9 type-zero avail=2 bytes=0000 -> process=BadResponse | get=BadResponse calls=1
+dual 10 five-length-bytes avail=6 bytes=30ffffffff7f -> process=BadResponse | get=BadResponse calls=5
+dual 11 non-minimal-length avail=3 bytes=308000 -> process=BadResponse | get=BadResponse calls=3
+dual 12 header-and-body avail=9 bytes=300701020304050607 -> process=Success type=30 rl=7 hl=2 | get=Success type=30 rl=7 calls=2
+dual-sweep accepted=20,21,22,23,24,25,26,27,28,29,2a,2b,2c,2d,2e,2f,30,31,32,33,34,35,36,37,38,39,3a,3b,3c,3d,3e,3f,40,41,42,43,44,45,46,47,48,49,4a,4b,4c,4d,4e,4f,50,51,52,53,54,55,56,57,58,59,5a,5b,5c,5d,5e,5f,62,63,66,67,6a,6b,6e,6f,70,71,72,73,74,75,76,77,78,79,7a,7b,7c,7d,7e,7f,90,91,92,93,94,95,96,97,98,99,9a,9b,9c,9d,9e,9f,b0,b1,b2,b3,b4,b5,b6,b7,b8,b9,ba,bb,bc,bd,be,bf,d0,d1,d2,d3,d4,d5,d6,d7,d8,d9,da,db,dc,dd,de,df,e0,e1,e2,e3,e4,e5,e6,e7,e8,e9,ea,eb,ec,ed,ee,ef,f0,f1,f2,f3,f4,f5,f6,f7,f8,f9,fa,fb,fc,fd,fe,ff n=168 refused=88 differ=0 digest=38600be5a68ed2b3
+truncated-sweep differ=168 digest=1c2892fdb76b3173
+init Success sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=0 rri=0 rpi=1 srecvmax=65535 smaxqos=2 retain=1 smaxpkt=268435460 saliasmax=0 wildcard=1 subid=1 shared=1 keepalive=65535
+builder ordinary length=8 -> Success index=0 buflen=8 fieldset=0
+builder one-byte length=1 -> Success index=0 buflen=1 fieldset=0
+builder zero-length length=0 -> BadParameter
+builder a-whole-section length=32 -> Success index=0 buflen=32 fieldset=0
+ctx 0 empty props=- -> Success sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx 1 session-expiry props=1100000e10 -> Success sessionexp=3600 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx 2 receive-max props=210014 -> Success sessionexp=0 recvmax=20 maxpkt=268435460 aliasmax=0
+ctx 3 max-packet-size props=2700010000 -> Success sessionexp=0 recvmax=65535 maxpkt=65536 aliasmax=0
+ctx 4 topic-alias-max props=22000a -> Success sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=10
+ctx 5 all-four props=1100000e10210014270001000022000a -> Success sessionexp=3600 recvmax=20 maxpkt=65536 aliasmax=10
+ctx 6 receive-max-zero props=210000 -> Success sessionexp=0 recvmax=0 maxpkt=268435460 aliasmax=0
+ctx 7 max-packet-zero props=2700000000 -> Success sessionexp=0 recvmax=65535 maxpkt=0 aliasmax=0
+ctx 8 request-problem-two props=1702 -> Success sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx 9 auth-data-alone props=16000164 -> Success sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx 10 repeated-session-expiry props=1100000e101100000e10 -> BadResponse sessionexp=3600 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx 11 repeated-receive-max props=210014210015 -> BadResponse sessionexp=0 recvmax=20 maxpkt=268435460 aliasmax=0
+ctx 12 repeated-request-problem props=17001701 -> Success sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx 13 repeated-auth-method props=1500017815000179 -> Success sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx 14 two-user-properties props=2600016100016226000163000164 -> Success sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx 15 truncated-string props=15000978 -> BadResponse sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx 16 will-property-here props=180000000a -> BadParameter sessionexp=0 recvmax=65535 maxpkt=268435460 aliasmax=0
+ctx-sweep one-byte accepted=17,19 n=2 refused=254
+ctx-sweep two-byte accepted=21,22 n=2 refused=254
+ctx-sweep four-byte accepted=11,27 n=2 refused=254
+ctx-sweep string accepted=15,16 n=2 refused=254
+ctx-sweep varint accepted=17,19 n=2 refused=254
+ctx-sweep user-property accepted=26 n=1 refused=255
+params ordinary retain=0 avail=1 qos=0 maxqos=2 alias=0 topiclen=8 maxpkt=1024 -> Success
+params retain-unavailable retain=1 avail=0 qos=0 maxqos=2 alias=0 topiclen=8 maxpkt=1024 -> BadParameter
+params retain-available retain=1 avail=1 qos=0 maxqos=2 alias=0 topiclen=8 maxpkt=1024 -> Success
+params qos1-when-max-is-zero retain=0 avail=1 qos=1 maxqos=0 alias=0 topiclen=8 maxpkt=1024 -> BadParameter
+params qos2-when-max-is-one retain=0 avail=1 qos=2 maxqos=1 alias=0 topiclen=8 maxpkt=1024 -> Success
+params qos0-when-max-is-zero retain=0 avail=1 qos=0 maxqos=0 alias=0 topiclen=8 maxpkt=1024 -> Success
+params empty-topic-no-alias retain=0 avail=1 qos=0 maxqos=2 alias=0 topiclen=0 maxpkt=1024 -> BadParameter
+params empty-topic-with-alias retain=0 avail=1 qos=0 maxqos=2 alias=1 topiclen=0 maxpkt=1024 -> Success
+params max-packet-zero retain=0 avail=1 qos=0 maxqos=2 alias=0 topiclen=8 maxpkt=0 -> BadParameter
+params max-packet-one retain=0 avail=1 qos=0 maxqos=2 alias=0 topiclen=8 maxpkt=1 -> Success
+params-sweep n=105 refused=327 digest=15e76f1ba2016178
+end

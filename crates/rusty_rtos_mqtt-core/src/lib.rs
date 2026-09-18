@@ -68,9 +68,16 @@ pub mod reader;
 /// Which property may go in which outgoing packet: six tables, swept.
 pub mod validate;
 
+/// Every limit a session runs under, and where each one came from.
+pub mod context;
+
+/// The buffer an outgoing property section is written into.
+pub mod builder;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
+pub use builder::{BuilderError, PropertyBuilder};
 pub use connack::{
     CONNACK_MINIMUM_SIZE, ClientSettings, ConnAck, ConnAckError, SESSION_PRESENT_MASK,
     ServerSettings, deserialize_connack,
@@ -78,6 +85,10 @@ pub use connack::{
 pub use connect::{
     CONNECT_HEADER_SIZE, Connect, ConnectError, ConnectSize, Will, connect_packet_size,
     serialize_connect,
+};
+pub use context::{
+    ClientLimits, ConnectionProperties, ContextError, MAX_PACKET_SIZE, ServerLimits,
+    update_with_connect_props,
 };
 pub use disconnect::{
     Disconnect, DisconnectError, DisconnectSize, deserialize_disconnect, disconnect_packet_size,
@@ -98,7 +109,9 @@ pub use outpublish::{
 };
 pub use property::{PropertyError, PropertyReader, decode_variable_length, encode_string};
 pub use publish::{PublishError, PublishInfo, deserialize_publish};
-pub use reader::{IncomingHeader, ReadError, Received, Transport, read_header};
+pub use reader::{
+    IncomingHeader, ProcessError, ReadError, Received, Transport, process_header, read_header,
+};
 pub use size::{
     ListPacket, PINGREQ_PACKET_SIZE, PacketSize, SizeError, ack_packet_size, list_packet_size,
     subscribe_packet_size, unsubscribe_packet_size,
@@ -109,8 +122,8 @@ pub use state::{
 };
 pub use validate::{
     ConnectValidation, ValidateError, validate_connect_properties, validate_publish_ack_properties,
-    validate_publish_properties, validate_subscribe_properties, validate_unsubscribe_properties,
-    validate_will_properties,
+    validate_publish_params, validate_publish_properties, validate_subscribe_properties,
+    validate_unsubscribe_properties, validate_will_properties,
 };
 pub use writer::{
     ConnectInfo, PINGREQ, VERSION_5, WillInfo, serialize_ack_fixed, serialize_connect_fixed_header,

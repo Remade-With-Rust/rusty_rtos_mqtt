@@ -67,15 +67,21 @@ lives.
   which packet — swept over all 256 identifiers at six value shapes each. The
   map is printed rather than hashed, and it found three more places where the
   writing side allows what the reading side refuses.
+- **Proven**: the connection context, both constructors, the outgoing PUBLISH's
+  parameter validator and the **second** fixed-header reader — which completes
+  `core_mqtt_serializer.c` but for its logging. Running the two readers side by
+  side showed that only one of them can say "not yet", on every packet type a
+  client may receive.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The context helpers and
-the remaining argument validators (~1,102 lines of `core_mqtt_serializer.c`),
-the MQTT 5 property builders (`core_mqtt_prop_*.c`, 2,056 lines) and the
-connection state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This
-crate can build and read every MQTT packet, and check every property section a
-client may send; it cannot yet run a connection.
+**Known gaps, and they are still most of coreMQTT.** The MQTT 5 property
+builders (`core_mqtt_prop_*.c`, 2,056 lines) and the connection state machine
+(`core_mqtt.c`, 5,618 lines) are **not written**, and neither are
+`core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
+does not have. This crate can build and read every MQTT packet, off a socket or
+out of a buffer, and check every property section a client may send; it cannot
+yet run a connection.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -104,11 +110,13 @@ with the incoming PUBLISH, 58 lines plus twelve more with the DISCONNECT in both
 directions, 30 lines plus a 32-combination whole-packet sweep with the CONNECT,
 25 lines across three serializers with the outgoing PUBLISH, 45 lines with
 SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, 20 lines comparing
-the transport reader CALL FOR CALL, and 94 lines across the six outgoing
-property validators — 36 of them sweeps — all at the pinned v5.0.2. **42.9 % of
-the library.** 125 tests. **This crate reads every packet a broker can send, off
-a socket, and writes every packet a client can send** — the whole wire codec;
-what is missing is the connection state machine that drives it.
+the transport reader CALL FOR CALL, 94 lines across the six outgoing property
+validators — 36 of them sweeps — and 56 lines finishing the file, which run the
+library's TWO header readers side by side — all at the pinned v5.0.2. **45.2 %
+of the library, and `core_mqtt_serializer.c` is complete but for its logging.**
+139 tests. **This crate reads every packet a broker can send, off a socket or
+out of a buffer, and writes every packet a client can send** — the whole wire
+codec; what is missing is the connection state machine that drives it.
 
 ## What it is
 
@@ -1087,6 +1095,78 @@ subscription id given the table's status instead of the decoder's, the alias
 bound made inclusive, the zero subscription id accepted, [MQTT-3.1.2-32] checked
 in the arm instead of after the walk, the acknowledgement table's flag moved
 inside its loop, and a zero Receive Maximum accepted.
+
+## The connection context, and the last of the serializer
+
+**56 trace lines agree with `core_mqtt_serializer.c`** — and with this slice
+`core_mqtt_serializer.c` is **finished** except for its two logging functions.
+
+What was left of the file was the part that is not a codec: the two
+constructors, the helper that fills a connection context from a CONNECT's
+properties, the parameter validator an outgoing PUBLISH goes through, and a
+**second reader of the fixed header** — the buffered twin of the callback-driven
+one proven in the previous slice.
+
+### The instrument: one job, done twice
+
+Two of the four are second copies of something already diffed against the C, so
+the differential runs **both arms over the same input and prints both answers**:
+
+```
+dual 1 puback         avail=3 bytes=400200 -> process=Success type=40 rl=2 hl=2 | get=Success type=40 rl=2 calls=2
+dual 6 type-byte-only avail=1 bytes=30     -> process=NeedMoreBytes            | get=BadResponse calls=2
+dual-sweep      ... n=168 refused=88 differ=0
+truncated-sweep differ=168
+```
+
+The first sweep says the two readers agree on every whole header. The second
+says they disagree on **every truncated one** — all 168 packet types a client
+may receive. A correct arm is the best instrument for finding a wrong one, and
+here it found three things:
+
+1. **Only the buffered reader can say "not yet".** Given a type byte and no
+   length behind it, it answers `MQTTNeedMoreBytes`; the callback-driven one
+   answers `MQTTBadResponse` — and the doxygen for that one shows a
+   **non-blocking** loop ending in `assert( status == MQTTSuccess )`. A TCP
+   segment boundary between byte 1 and byte 2 of a header is ordinary, and it
+   closes a connection carrying a well-formed packet.
+2. **`updateContextWithConnectProps` stores what the validator refuses** — a
+   Receive Maximum of zero, a Maximum Packet Size of zero, a Request Problem
+   Information of 2, authentication data with no method. The second of those
+   makes nine functions in the library answer `MQTTBadParameter` for ever,
+   including three deserializers, so the session is inert in **both**
+   directions. It is public, documented with a worked example, and callable
+   without the validator.
+3. **`MQTT_ValidatePublishParams` compares QoS against zero, not against the
+   maximum**, so a broker that announced Maximum QoS 1 is sent QoS 2.
+
+All three are drafted in `docs/upstream/`.
+
+### What a slice does when a refusal cannot cross the language boundary
+
+Three of the C's refusals have no reachable equivalent here, and the honest
+thing is to say which rather than to fake them:
+
+- `MQTTPropertyBuilder_Init` takes a **pointer and a length** and never checks
+  them against each other, so an eight-byte buffer with a length of a million is
+  accepted. `PropertyBuilder::new` takes one slice. Its null-buffer refusal is
+  unreachable, and its length bound needs a 256 MB buffer to reach — so neither
+  is in the trace, and the bound is pinned by a unit test on the arithmetic.
+- `MQTT_ValidatePublishParams` refuses a null topic name with a non-zero length,
+  which is the same two-numbers-must-agree shape, and the same resolution.
+
+**A trace should ask only what both arms can answer.** The alternative — printing
+a sentinel in both columns — is a constant compared with itself.
+
+### Poison-proven on thirteen behaviours, thirteen caught
+
+The buffered reader made unable to say "not yet", its two empty-buffer statuses
+swapped, its type checked after its length, its header length missing the type
+byte, its non-minimal check dropped; the context filler made to validate, made
+to deduplicate all nine, and given the wrong status for a foreign identifier; a
+fresh context zeroed; the builder made to accept an empty buffer; and the three
+checks in the parameter validator, one of them corrected to what the
+specification says.
 
 ## The gate
 

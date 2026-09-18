@@ -409,3 +409,50 @@ fn arbitrary_outgoing_property_sections_never_panic() {
         let _ = validate_unsubscribe_properties(&bytes);
     }
 }
+
+// ---------------------------------------------------------------------------
+// The buffered header reader, and the connection context.
+//
+// `process_header` is handed bytes straight off the network, before anything
+// has decided they are a packet -- the same threat surface as the fixed-header
+// decoder above, one layer out.
+
+use rusty_rtos_mqtt_core::context::{ConnectionProperties, update_with_connect_props};
+use rusty_rtos_mqtt_core::reader::process_header;
+
+/// Arbitrary receive buffers through the buffered reader.
+#[test]
+fn arbitrary_receive_buffers_never_panic() {
+    let mut rng = Lcg::new(15);
+
+    for _ in 0..200_000 {
+        let len = rng.below(8) as usize;
+        let bytes: Vec<u8> = (0..len).map(|_| (rng.next() >> 16) as u8).collect();
+
+        if let Ok(header) = process_header(&bytes) {
+            // The header must lie inside what arrived, or the caller would
+            // slice a body that is not there.
+            assert!(
+                header.header_length <= bytes.len(),
+                "a {}-byte header out of {} bytes",
+                header.header_length,
+                bytes.len()
+            );
+            assert!(header.header_length >= 2, "a header is at least two bytes");
+        }
+    }
+}
+
+/// Arbitrary CONNECT property sections through the context filler.
+#[test]
+fn arbitrary_connect_properties_never_panic() {
+    let mut rng = Lcg::new(16);
+
+    for _ in 0..100_000 {
+        let len = rng.below(24) as usize;
+        let bytes: Vec<u8> = (0..len).map(|_| (rng.next() >> 16) as u8).collect();
+
+        let mut context = ConnectionProperties::new();
+        let _ = update_with_connect_props(&bytes, &mut context);
+    }
+}

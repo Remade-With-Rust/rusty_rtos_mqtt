@@ -519,6 +519,61 @@ reason, the way `Read::read_to_end` takes its buffer, and the trace compares
 them on refused cases too. A differential compares the state left behind, not
 only the answer.
 
+## Conformance (2026-09-18) — the connection context, and the last of the serializer
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **56 / 56** | `cargo test -p rusty_rtos_mqtt-core --test context`. C arm: `oracle/context_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| what is compared per header case | **BOTH readers, over the same bytes** | `MQTT_ProcessIncomingPacketTypeAndLength` takes the header out of a buffer and `MQTT_GetIncomingPacketTypeAndLength` pulls it off a callback. 13 named cases plus two 256-value sweeps drive both and print both answers. |
+| CONNECT property sweeps | **6 x 256** | the THIRD walk of that table in the library. Its accepted sets are printed, so `validate.trace` and `context.trace` are a diff. |
+| parameter combinations | **432** | every combination of retain, retain-available, QoS, maximum QoS, topic alias, topic-name length and maximum packet size, digested. |
+| poison rows | **13 introduced, 13 caught** | five in the buffered reader, three in the context filler, one in each constructor, and three in the parameter validator. |
+
+**Three findings, all from running one job's two implementations side by side.**
+
+1. **Only one of the two readers can say "not yet".** `truncated-sweep
+   differ=168`: for every packet type a client may receive, a type byte with no
+   length behind it yet is `MQTTNeedMoreBytes` from the buffered reader and
+   `MQTTBadResponse` from the callback-driven one. The doxygen for the latter
+   shows a non-blocking loop ending in `assert( status == MQTTSuccess )`, so an
+   ordinary TCP segment boundary inside a header trips it.
+2. **`updateContextWithConnectProps` stores what
+   `MQTT_ValidateConnectProperties` refuses**, including a Maximum Packet Size
+   of zero — which makes **nine** functions answer `MQTTBadParameter` for ever,
+   three of them deserializers, so the session is inert in both directions. The
+   helper is public and documented with a worked example.
+3. **`MQTT_ValidatePublishParams` compares QoS against zero rather than the
+   maximum**, so QoS 2 goes to a broker that announced Maximum QoS 1.
+
+Drafted in `kairos-upstream/drafts/coremqtt-two-readers-one-header.md`.
+
+**A trace should ask only what both arms can answer.** Three of the C's
+refusals have no reachable equivalent in Rust, all of the same shape: a pointer
+and a length that must agree and are never checked against each other
+(`MQTTPropertyBuilder_Init`'s buffer and length, `MQTT_ValidatePublishParams`'s
+topic name and its length). A slice carries both, so the question cannot be
+asked. They were **removed from the driver** rather than faked, because printing
+a sentinel in both columns is a constant compared with itself; the one bound
+that is real but needs a 256 MB buffer to reach is pinned by a unit test on the
+arithmetic instead.
+
+**The guard, twenty-second shape: two arms that never disagree are ONE arm
+driven twice.** The whole instrument of this slice is that the same header is
+read two ways; if the `dual` lines agreed everywhere they would prove nothing
+`reader.trace` had not. So the trace must contain cases where the two agree AND
+cases where they part, and the sweeps must show the parting is systematic
+rather than one awkward input. `the_two_readers_are_compared_where_they_agree_and_where_they_do_not`
+asserts all three.
+
+**And the digest seed, recorded rather than fixed.** Every driver here seeds its
+rolling digest with `1469598103934665603`, which is one digit short of FNV-1a's
+offset basis. This slice's driver was written with the real basis and its first
+run disagreed with the Rust arm on nothing but the digest. The seed is arbitrary
+— a digest need only be deterministic and shared — so the new driver was moved
+to the house constant rather than five checked-in traces being regenerated. The
+note in `tests/connect.rs` that predicted exactly this is why it took one run to
+find.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -534,7 +589,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 125 passed, 0 failed (65 unit, 9 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate) |
+| `cargo test -p rusty_rtos_mqtt-core` | 139 passed, 0 failed (73 unit, 11 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -559,13 +614,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, SUBSCRIBE, UNSUBSCRIBE, the acks and PINGREQ | ~604 | **remade and proven** |
 | `core_mqtt_serializer.c`, the transport reader | ~114 | **remade and proven** |
 | `core_mqtt_serializer.c`, the outgoing property validators | 695 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~1,102 | not written |
+| `core_mqtt_serializer.c`, the context, the constructors and the buffered reader | 368 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~734 | not written: two logging functions (165) and the file's preamble |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **42.9 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **45.2 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not
