@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 //! `rusty_rtos_mqtt` — the first slice of coreMQTT, remade in Rust.
 //!
-//! **What is here.** Eleven slices, each diffed against the C.
+//! **What is here.** Twelve slices, each diffed against the C.
 //!
 //! `core_mqtt_state.c` — the QoS 1 and QoS 2 delivery state machine, in both
 //! directions, across 24 scenarios. The differential compares both record
@@ -64,11 +64,16 @@
 //! showing that the three agree as prefixes, which no single-function
 //! differential can.
 //!
-//! **What is not:** the outgoing SUBSCRIBE and UNSUBSCRIBE bodies, the outgoing
-//! acknowledgements, the transport reader and the property validators (~2,515
-//! lines, plus 2,056 of MQTT 5 property builders) and the connection state
-//! machine (`core_mqtt.c`, 5,618 lines). 33.8 % of coreMQTT is remade. This
-//! crate can open a session, publish and close it; it cannot yet subscribe.
+//! **SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ** — which
+//! complete the outgoing wire codec. Sweeping the ack reason codes here showed
+//! coreMQTT validating them correctly on the way out and incorrectly on the way
+//! in: the library disagrees with itself.
+//!
+//! **What is not:** the transport reader, the property validators and the
+//! context helpers (~1,911 lines, plus 2,056 of MQTT 5 property builders) and
+//! the connection state machine (`core_mqtt.c`, 5,618 lines). 37.7 % of
+//! coreMQTT is remade. This crate can build and read every MQTT packet; it
+//! cannot yet run a connection.
 //!
 //! Zero allocation, `no_std`, `forbid(unsafe)`.
 //!

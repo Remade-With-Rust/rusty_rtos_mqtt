@@ -59,6 +59,9 @@ pub mod connect;
 /// Building an outgoing PUBLISH: three serializers, one packet.
 pub mod outpublish;
 
+/// The rest of what a client sends: SUBSCRIBE, UNSUBSCRIBE, acks and PINGREQ.
+pub mod outbound;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
@@ -78,6 +81,10 @@ pub use header::{
     HeaderError, MAX_REMAINING_LENGTH, PacketHeader, REMAINING_LENGTH_INVALID,
     encode_variable_length, incoming_packet_valid, process_incoming_packet_type_and_length,
     variable_length_encoded_size,
+};
+pub use outbound::{
+    OutboundError, RetainHandling, Subscription, ack_reason_code_allowed, serialize_ack,
+    serialize_pingreq, serialize_subscribe, serialize_unsubscribe, subscription_options,
 };
 pub use outpublish::{
     OutgoingError, OutgoingPublish, PublishSize, publish_packet_size, serialize_publish,

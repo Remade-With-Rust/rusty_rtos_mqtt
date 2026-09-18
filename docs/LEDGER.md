@@ -399,6 +399,36 @@ side accepts a zero-length topic name with no Topic Alias — a divergence from
 MQTT 5.0 that the C has and this package reproduces — and the writing side
 refuses the same packet. Recorded by a test that fails if either side changes.
 
+## Conformance (2026-09-18) — SUBSCRIBE, UNSUBSCRIBE, the acks and PINGREQ
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **45 / 45** | `cargo test -p rusty_rtos_mqtt-core --test outbound`, byte for byte. C arm: `oracle/outbound_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| named cases | **19 list, 16 ack, 3 pingreq** | every subscription option, three filters at once, the shared validator's four refusals, the three ack shapes, and the buffer at and below each threshold. |
+| options sweep | **36 combinations** | every combination of QoS, no-local, retain-as-published and retain handling, with each byte printed and digested. |
+| ack reason sweeps | **4 x 256 calls** | one per publish-acknowledgement type, because the C validates them PER TYPE on the way out. |
+| poison rows | **16 introduced, 16 caught** | three option-bit swaps, the options byte before its filter, an options byte on UNSUBSCRIBE, three validator refusals removed, the two checks reordered, the ack tables merged, a PUBACK allowed `0x92`, a dropped property-length byte, a wrong remaining length, the buffer statuses unified, a zero ack packet id, and a wrong PINGREQ type byte. |
+
+**The library validates ack reason codes TWICE and disagrees with itself.** The
+writing side checks per packet type — nine values for a PUBACK and a PUBREC, two
+for a PUBREL and a PUBCOMP — which is exactly MQTT 5.0 §§3.4.2.1, 3.5.2.1,
+3.6.2.1 and 3.7.2.1. The reading side checks all four against one shared table
+of ten. So coreMQTT will not SEND a PUBACK carrying `0x92` and will ACCEPT one.
+
+This is the sharpest evidence yet for the upstream report already drafted on
+that reading-side table, and it changes the argument: the fix is not "write a
+table", it is "use the one three thousand lines up". The draft has been amended.
+
+**A too-small buffer gets two different statuses**, a hundred lines apart:
+`MQTTNoMemory` under four bytes from `MQTT_SerializeAck`, and `MQTTBadParameter`
+at four bytes with a reason code from `serializeAckBody`. Transcribed as each
+has it, with a case for each.
+
+**The shared list validator checks the BUFFER before the FILTERS**, so a call
+that is wrong about both reports `NoMemory`. The order is observable; the first
+poison written for it removed the check instead of moving it, which is a
+different experiment — rewritten, and then caught.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -414,7 +444,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 96 passed, 0 failed (47 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish) |
+| `cargo test -p rusty_rtos_mqtt-core` | 105 passed, 0 failed (53 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -436,13 +466,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the DISCONNECT, both directions | ~505 | **remade and proven** |
 | `core_mqtt_serializer.c`, the CONNECT | ~348 | **remade and proven** |
 | `core_mqtt_serializer.c`, the outgoing PUBLISH | ~584 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~2,515 | not written |
+| `core_mqtt_serializer.c`, SUBSCRIBE, UNSUBSCRIBE, the acks and PINGREQ | ~604 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~1,911 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **33.8 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **37.7 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

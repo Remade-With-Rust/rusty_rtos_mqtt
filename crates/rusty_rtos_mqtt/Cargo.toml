@@ -1,6 +1,6 @@
 [package]
 name = "rusty_rtos_mqtt"
-description = "Eleven proven slices of coreMQTT, remade in Rust, including EVERY PACKET A BROKER CAN SEND, the CONNECT that starts a session and the PUBLISH that carries data out: the QoS publish state machine, the fixed-header codec, the MQTT 5 property primitives, the outgoing-packet writers, the packet-size calculators, the acknowledgement deserializers, the CONNACK, the incoming PUBLISH, the DISCONNECT in both directions, the CONNECT and the outgoing PUBLISH across all three of its serializers. Each diffed against the C, comparing the state left behind and not only the answer. Zero allocation, no_std, forbid(unsafe). 33.8% of the library; the subscribe bodies and the connection machine are not written."
+description = "Twelve proven slices of coreMQTT, remade in Rust, including EVERY PACKET A BROKER CAN SEND and EVERY PACKET A CLIENT CAN SEND: the QoS publish state machine, the fixed-header codec, the MQTT 5 property primitives, the outgoing-packet writers, the packet-size calculators, the acknowledgement deserializers, the CONNACK, the incoming PUBLISH, the DISCONNECT in both directions, the CONNECT, the outgoing PUBLISH across all three of its serializers, and SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ. Each diffed against the C, comparing the state left behind and not only the answer. Zero allocation, no_std, forbid(unsafe). 37.7% of the library: the whole wire codec, but not the connection machine that drives it."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

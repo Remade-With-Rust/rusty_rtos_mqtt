@@ -40,11 +40,11 @@ registers are touched (that is a port crate).
 `core_mqtt_state.c`, whole; out of `core_mqtt_serializer.c` the fixed-header
 codec (~240 lines), the packet-size calculators (~300), the acknowledgement
 deserializers (~586), the CONNACK path (~566), the incoming PUBLISH (~466) and
-the DISCONNECT in both directions (~505), the CONNECT (~348) and the outgoing
-PUBLISH (~584); and, out of `core_mqtt_serializer_private.c`, the property
-primitives (~309 lines) and the fixed-header writers (~180). 33.8 % of the
-library — **every packet a broker can send**, and a session this crate can open,
-publish on, and close.
+the DISCONNECT in both directions (~505), the CONNECT (~348), the outgoing
+PUBLISH (~584) and SUBSCRIBE/UNSUBSCRIBE/the acks/PINGREQ (~604); and, out of
+`core_mqtt_serializer_private.c`, the property primitives (~309 lines) and the
+fixed-header writers (~180). 37.7 % of the library — **every packet a broker can
+send and every packet a client can send**, which is the whole wire codec.
 
 | ours | coreMQTT | note |
 |---|---|---|
@@ -135,11 +135,22 @@ The outgoing PUBLISH, in `outpublish`:
 | `update_duplicate_flag(&mut u8, bool)` | `MQTT_UpdateDuplicatePublishFlag` | patches one bit of a serialized header, for a resend |
 | `OutgoingPublish { qos, dup, retain, topic_name, payload, properties }` | `MQTTPublishInfo_t` plus a prop builder | the payload is a slice in all three, so the C's NULL-with-a-length vectored shape has no equivalent |
 
-**Not built:** the outgoing SUBSCRIBE and UNSUBSCRIBE bodies, the outgoing
-acknowledgements and PINGREQ, the transport reader and the outgoing property
-validators (~2,515 lines of `core_mqtt_serializer.c`), `core_mqtt_prop_*.c`
+SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, in `outbound`:
+
+| ours | coreMQTT | note |
+|---|---|---|
+| `serialize_subscribe(dst, &[Subscription], props, id, rl)` | `MQTT_SerializeSubscribe` | |
+| `serialize_unsubscribe(..)` | `MQTT_SerializeUnsubscribe` | the same without the options byte |
+| `serialize_ack(dst, type, id, reason, props)` | `MQTT_SerializeAck` + `serializeAckBody` + `serializeAckWithProperties` | three shapes: four bytes, six, or with properties |
+| `serialize_pingreq(dst)` | `MQTT_SerializePingreq` | two bytes that never change |
+| `ack_reason_code_allowed(type, code)` | `validateReasonCodeForAck` | PER PACKET TYPE, unlike the reading side's one shared table |
+| `subscription_options(&Subscription)` | the options byte built inline | five decisions in six bits |
+| `Subscription { topic_filter, qos, no_local, retain_as_published, retain_handling }` | `MQTTSubscribeInfo_t` | one struct for both list packets, as the C's is |
+
+**Not built:** the transport reader, the outgoing property validators and the
+context helpers (~1,911 lines of `core_mqtt_serializer.c`), `core_mqtt_prop_*.c`
 (2,056 for the MQTT 5 property builders) and `core_mqtt.c` (5,618). This crate
-can open a session, publish and close it; it cannot yet subscribe.
+can build and read every MQTT packet; it cannot yet run a connection.
 
 ## 4. Roadmap
 
@@ -157,7 +168,8 @@ can open a session, publish and close it; it cannot yet subscribe.
 | **the DISCONNECT, both directions** | the packet MQTT 5 made bidirectional, and the one the PUBLISH slice's claim had missed | K7 | **58 trace lines, two reason-code sweeps and ten property sweeps agree; comparing the two directions' accepted sets found a server reason code a stock client refuses** ✅ |
 | **the CONNECT** | the packet that starts a session: eight length-prefixed fields, four optional | K7 | **30 trace lines agree BYTE FOR BYTE, plus a 32-combination digest of the whole packet; four ordering poisons caught that a parse-level comparison could not see** ✅ |
 | **the outgoing PUBLISH** | the packet that carries the application's data out, across all THREE of coreMQTT's serializers | K7 | **25 trace lines agree byte for byte; the trace carries the prefix relationship between the three, and four broken-contract cases refuted an assumption of mine on their first run** ✅ |
-| SUBSCRIBE / UNSUBSCRIBE | the rest of the wire codec, outgoing | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
+| **SUBSCRIBE / UNSUBSCRIBE / acks / PINGREQ** | what is left of the outgoing wire codec | K7 | **45 trace lines agree byte for byte; sweeping the ack reason codes per type showed coreMQTT validating them CORRECTLY on the way out and incorrectly on the way in** ✅ |
+| the outgoing property validators | `MQTT_Validate*Properties` and the context helpers | K7 | a differential over each property table |
 | MQTT 5 properties | `core_mqtt_prop_*.c` | K7 | the same, over a property corpus |
 | the connection | `core_mqtt.c` over a transport | K7 | a callback-for-callback differential, the shape `rusty_rtos_sntp`'s client established |
 | a real broker | — | K7 | one hour against `rumqttd`, zero lost keep-alives (the family plan's kill test) |
@@ -179,7 +191,8 @@ can open a session, publish and close it; it cannot yet subscribe.
 | The packet ids driving this come from the broker, so they are attacker-chosen. | `tests/no_panic.rs` drives 200 x 60 random operations over a four-id space and checks well-formedness after every step: no duplicate id, no occupied record at QoS 0, no empty slot keeping stale fields. |
 | A resend cursor that failed to advance would spin rather than fail. | Asserted, the same way `rusty_rtos_json`'s iterator and `rusty_rtos_sntp`'s retry loops are. |
 | A guard whose effect is invisible in every scenario looks like dead code and gets removed. | Two were found by poisons that did not fire. One (the ack/QoS check) was a WORKLOAD gap and got a scenario; the other (the self-transition guard) is genuinely an optimisation, and a unit test pins why. |
-| **This is 5,290 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **This is 5,894 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **The subscription options byte packs five decisions into six bits**, and one wrong bit subscribes at the wrong QoS or asks for retained messages that never come — in a packet that looks perfectly well formed. | All 36 combinations swept, every byte printed, and a test asserting the 36 are DISTINCT: two combinations producing one byte would mean a decision is being lost. |
 | **Three serializers share one body and must agree as PREFIXES**, and three separate differentials could each pass while that relationship broke — leaving a caller on the vectored path sending a packet the size calculator never described. | All three run on every case and the trace prints all three outputs, so the nesting is checked from the checked-in file rather than asserted on our side alone. |
 | **A CONNECT's fields are all length-prefixed, so a packet with two of them SWAPPED still parses** — and publishes the will to the wrong topic, or sends the password as the user name. | The differential is byte for byte and the 32-combination sweep digests the WHOLE packet. Four ordering swaps are in the poison set and all four are caught. |
 | **A README claim can outrun the code by one slice.** "Reads every packet a broker can send" was written after the PUBLISH slice and was wrong: MQTT 5's DISCONNECT is bidirectional and was not covered. | The overstatement is RECORDED in the README rather than quietly corrected, and the slice that makes it true says so. A scope claim gets checked against the C's function list, not against what the last slice felt like. |
@@ -230,3 +243,5 @@ can open a session, publish and close it; it cannot yet subscribe.
 | 2026-09-18 | **A comment that states a relationship is a CLAIM, and a claim in a comment is one nobody runs.** I wrote that `MQTT_SerializePublishHeader` reports the size it computed rather than the bytes it wrote, added `debug_assert!(written <= header_size)` beside it, and was wrong: the two differ in BOTH directions once the caller stops passing what the size function returned. Four cases that break the C's own stated API contract refuted it on their first run. Where a comment asserts a relationship, either test it or do not assert it. |
 | 2026-09-18 | **Where several functions share one body, the differential must run them TOGETHER.** coreMQTT has three outgoing-PUBLISH serializers over one `serializePublishCommon`, and the property a caller depends on is that the short one is a prefix of the middle and the middle of the long. Three separate differentials could each pass while that broke. All three run on every case and the trace carries all three outputs side by side. |
 | 2026-09-18 | **An API contract the corpus always keeps is an API contract nobody has tested.** The C says calling `MQTT_GetPublishPacketSize` before the serializers is "part of the API contract", and every case did — so the header size reported and the bytes written were always equal and a poison swapping them passed. Four cases now break the contract deliberately. **When a comment says callers must do X, add the case where they do not.** |
+| 2026-09-18 | **When a library validates the same thing twice, diff the two validators — one of them may be right.** coreMQTT checks publish-acknowledgement reason codes per packet type on the way OUT (nine for a PUBACK, two for a PUBREL: exactly MQTT 5.0) and against one shared table of ten on the way IN. So it refuses to SEND a PUBACK carrying `0x92` and accepts one. That is the sharpest evidence for the upstream report already drafted on the reading-side table, and it changes what the fix is: not "write a table" but "use the one three thousand lines up". |
+| 2026-09-18 | **A poison must change the thing it names.** The first attempt at "check the filters before the buffer" REMOVED the buffer check rather than moving it — a different experiment, which the slices below subsumed, and it reported a miss that was not one. Rewritten to reorder the two checks, it was caught immediately. **Read the poison back and ask whether it does what its name says** before drawing any conclusion from a miss. |

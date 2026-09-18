@@ -141,3 +141,14 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/outpublish_driver" > "$here/outpublish.trace"
 echo "wrote $(wc -l < "$here/outpublish.trace") lines to $here/outpublish.trace"
+
+# The remaining-outgoing-packets differential's C arm: SUBSCRIBE, UNSUBSCRIBE,
+# the publish acknowledgements and PINGREQ.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/outbound_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/outbound_driver.c"
+
+"$here/outbound_driver" > "$here/outbound.trace"
+echo "wrote $(wc -l < "$here/outbound.trace") lines to $here/outbound.trace"

@@ -5,10 +5,9 @@
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
-primitives, outgoing-packet writers, packet-size calculators, **every packet a
-broker can send**, the CONNECT that starts a session and the PUBLISH that
-carries data out — eleven proven slices of the Kairos remake of coreMQTT.
-MIT OR Apache-2.0.
+primitives, packet-size calculators, **every packet a broker can send** and
+**every packet a client can send** — twelve proven slices of the Kairos remake of
+coreMQTT. MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
 v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
@@ -60,16 +59,19 @@ lives.
   serializers — whole packet, header-without-payload, and header-without-topic —
   with the trace showing that the three agree as prefixes, which no
   single-function differential can.
+- **Proven**: SUBSCRIBE, UNSUBSCRIBE, the publish acknowledgements and PINGREQ —
+  which complete the **outgoing wire codec**. Sweeping the ack reason codes here
+  showed that coreMQTT validates them correctly on the way out and incorrectly
+  on the way in: the library disagrees with itself.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The outgoing SUBSCRIBE and
-UNSUBSCRIBE bodies, the outgoing acknowledgements and PINGREQ, the transport
-reader, the outgoing property validators (~2,515 lines of
+**Known gaps, and they are still most of coreMQTT.** The transport reader, the
+outgoing property validators and the context helpers (~1,911 lines of
 `core_mqtt_serializer.c`), the MQTT 5 property builders (`core_mqtt_prop_*.c`,
 2,056 lines) and the connection state machine (`core_mqtt.c`, 5,618 lines) are
-**not written**. This crate can open a session, publish and close it; it cannot
-yet subscribe.
+**not written**. This crate can build and read every MQTT packet; it cannot yet
+run a connection.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -96,10 +98,11 @@ calculators, 57 lines plus three 256-value sweeps with the acknowledgement
 deserializers, 54 lines plus six more with the CONNACK, 54 lines plus eight more
 with the incoming PUBLISH, 58 lines plus twelve more with the DISCONNECT in both
 directions, 30 lines plus a 32-combination whole-packet sweep with the CONNECT,
-and 25 lines across three serializers with the outgoing PUBLISH — all at the
-pinned v5.0.2. **33.8 % of the library.** 96 tests. **This crate reads every
-packet a broker can send, and can start a session, publish, and end it**; it
-cannot yet subscribe.
+25 lines across three serializers with the outgoing PUBLISH, and 45 lines with
+SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ — all at the pinned
+v5.0.2. **37.7 % of the library.** 105 tests. **This crate reads every packet a
+broker can send and writes every packet a client can send** — the whole wire
+codec; what is missing is the connection state machine that drives it.
 
 ## What it is
 
@@ -886,6 +889,62 @@ header size reported as the bytes written; and the DUP patch on the wrong bit
 and on any byte.
 
 Four needed the broken-contract cases before they would fire.
+
+## SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ
+
+**45 trace lines agree with `core_mqtt_serializer.c`**, byte for byte. With the
+CONNECT, the outgoing PUBLISH and the DISCONNECT, this completes the outgoing
+wire codec: **every packet an MQTT client can put on a socket**.
+
+### The library validates ack reason codes twice, and disagrees with itself
+
+`validateReasonCodeForAck` checks an **outgoing** acknowledgement's reason code
+**per packet type**:
+
+```
+ack-reason-sweep puback  accepted=00,10,80,83,87,90,91,97,99  n=9
+ack-reason-sweep pubrec  accepted=00,10,80,83,87,90,91,97,99  n=9
+ack-reason-sweep pubrel  accepted=00,92                       n=2
+ack-reason-sweep pubcomp accepted=00,92                       n=2
+```
+
+That is exactly MQTT 5.0 §3.4.2.1, §3.5.2.1, §3.6.2.1 and §3.7.2.1. The
+[reading side](#the-acknowledgement-deserializers) checks all four against **one
+shared table of ten**, so coreMQTT refuses to *send* a PUBACK carrying `0x92`
+and accepts one on the way in.
+
+This is the sharpest evidence for the upstream report already filed on that
+reading-side table: **the library contains the correct table, three thousand
+lines from the incorrect one.** Both are transcribed, and a test asserts the
+disagreement from both directions.
+
+### The subscription options byte: five decisions, six bits
+
+SUBSCRIBE carries one per topic filter, packing QoS (two bits), no-local,
+retain-as-published and retain handling (two more, three legal values). One
+wrong bit subscribes at the wrong QoS, or asks for retained messages that never
+come, and the packet looks perfectly well formed.
+
+All 36 combinations are swept and every byte printed. A test asserts they are
+**distinct** — two combinations producing one byte would mean a decision is
+being lost — and that no reserved bit is ever set.
+
+### A too-small buffer gets two different statuses
+
+`MQTT_SerializeAck` answers `MQTTNoMemory` for a buffer under four bytes, and
+`serializeAckBody` answers **`MQTTBadParameter`** for one that is four bytes but
+cannot hold a reason code. Two statuses for one condition, a hundred lines
+apart. Transcribed as each has it, with a case for each.
+
+### Poison-proven on sixteen behaviours, all caught
+
+The QoS bits swapped; no-local and retain-as-published swapped; the two retain
+handling values swapped; the options byte written before its filter; an options
+byte added to UNSUBSCRIBE; an empty list, a zero packet id and an empty filter
+allowed; the two checks reordered; **the ack tables merged into one**; a PUBACK
+allowed to carry `0x92`; the property-length byte dropped from a bare-reason
+ack; a wrong remaining length; the buffer statuses unified; a zero ack packet
+id; and a PINGREQ with the wrong type byte.
 
 ## The gate
 

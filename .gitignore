@@ -43,3 +43,6 @@ oracle/connect_driver.pdb
 oracle/outpublish_driver
 oracle/outpublish_driver.exe
 oracle/outpublish_driver.pdb
+oracle/outbound_driver
+oracle/outbound_driver.exe
+oracle/outbound_driver.pdb
