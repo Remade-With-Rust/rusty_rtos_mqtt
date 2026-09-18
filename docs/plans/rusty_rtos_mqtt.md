@@ -39,9 +39,10 @@ registers are touched (that is a port crate).
 
 `core_mqtt_state.c`, whole; out of `core_mqtt_serializer.c` the fixed-header
 codec (~240 lines), the packet-size calculators (~300), the acknowledgement
-deserializers (~586) and the CONNACK path (~566); and, out of
-`core_mqtt_serializer_private.c`, the property primitives (~309 lines) and the
-fixed-header writers (~180). 21.7 % of the library.
+deserializers (~586), the CONNACK path (~566) and the incoming PUBLISH (~466);
+and, out of `core_mqtt_serializer_private.c`, the property primitives
+(~309 lines) and the fixed-header writers (~180). 24.6 % of the library — and
+**every packet a broker can send**.
 
 | ours | coreMQTT | note |
 |---|---|---|
@@ -89,11 +90,20 @@ The CONNACK, in `connack`:
 | `ConnAck::refused()` | `MQTTServerRefused` | a refusal is `Ok`, because the Reason String that says WHY is in the properties and an `Err` would discard it |
 | `connack::property`, `connack::field` | the property ids and the `fieldSet` bit positions | the C's numbering exactly; these cross the API in a `u32` |
 
-**Not built:** the rest of `core_mqtt_serializer.c` (~4,418 lines) — the packet
-BODIES and the PUBLISH deserializer — `core_mqtt_prop_*.c` (2,056 for the
-outgoing MQTT 5 property tables) and `core_mqtt.c` (5,618). This crate can now
-read every packet a broker sends except a PUBLISH, and write any outgoing
-header; it cannot yet fill in a packet body.
+The incoming PUBLISH, in `publish`:
+
+| ours | coreMQTT | note |
+|---|---|---|
+| `deserialize_publish(&PacketInfo, max_packet_size, topic_alias_max)` | `MQTT_DeserializePublish` | |
+| `PublishInfo { qos, dup, retain, packet_id, topic_name, properties, payload }` | `MQTTPublishInfo_t` plus the packet-id out-parameter | `packet_id` is `Option`, because QoS 0 carries none; `payload` is an empty slice where the C uses a NULL pointer |
+| `publish::flag` | `MQTT_PUBLISH_FLAG_*` | the four bits of the type byte's low nibble |
+| `publish::property` | the eight ids of §3.3.2.3 | including the only VARIABLE-length one in the library |
+| `PropertyReader::variable_length` | the C's inline `decodeVariableLength` in the subscription-id arm | bounded by the buffer as well as the budget |
+
+**Not built:** the OUTGOING packet bodies (~3,952 lines of
+`core_mqtt_serializer.c`), `core_mqtt_prop_*.c` (2,056 for the outgoing MQTT 5
+property tables) and `core_mqtt.c` (5,618). This crate can read a session; it
+cannot yet start one.
 
 ## 4. Roadmap
 
@@ -107,7 +117,8 @@ header; it cannot yet fill in a packet body.
 | **packet sizes** | the remaining length and packet size every writer is handed | K7 | **53 trace lines agree, including the 268,435,455 boundary at the exact value each check tests, and the calculators reconcile with the writers** ✅ |
 | **acknowledgement deserializers** | every ack a broker can send, except CONNACK | K7 | **57 trace lines plus three 256-value sweeps agree; the sweeps' accepted sets are printed in full, and reading them found three divergences from MQTT 5.0** ✅ |
 | **the CONNACK** | the packet that sets every connection-wide limit | K7 | **54 trace lines plus six 256-value sweeps agree; the reason-code and property tables are exactly MQTT 5.0 §3.2.2.2 and §3.2.2.3, asserted from the trace** ✅ |
-| CONNECT / PUBLISH / SUBSCRIBE | the rest of the wire codec | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
+| **the incoming PUBLISH** | the last packet a broker can send, and the only one carrying application data | K7 | **54 trace lines, two flag sweeps and six property sweeps agree; the payload arithmetic is pinned by an IDENTITY over 3,000-odd shapes, and two more divergences from MQTT 5.0 came out of it** ✅ |
+| CONNECT / PUBLISH / SUBSCRIBE | the rest of the wire codec, outgoing | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
 | MQTT 5 properties | `core_mqtt_prop_*.c` | K7 | the same, over a property corpus |
 | the connection | `core_mqtt.c` over a transport | K7 | a callback-for-callback differential, the shape `rusty_rtos_sntp`'s client established |
 | a real broker | — | K7 | one hour against `rumqttd`, zero lost keep-alives (the family plan's kill test) |
@@ -129,7 +140,8 @@ header; it cannot yet fill in a packet body.
 | The packet ids driving this come from the broker, so they are attacker-chosen. | `tests/no_panic.rs` drives 200 x 60 random operations over a four-id space and checks well-formedness after every step: no duplicate id, no occupied record at QoS 0, no empty slot keeping stale fields. |
 | A resend cursor that failed to advance would spin rather than fail. | Asserted, the same way `rusty_rtos_json`'s iterator and `rusty_rtos_sntp`'s retry loops are. |
 | A guard whose effect is invisible in every scenario looks like dead code and gets removed. | Two were found by poisons that did not fire. One (the ack/QoS check) was a WORKLOAD gap and got a scenario; the other (the self-transition guard) is genuinely an optimisation, and a unit test pins why. |
-| **This is 3,387 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **This is 3,853 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **A PUBLISH's payload length is a four-term subtraction on attacker-chosen numbers**, and a wrap would hand the APPLICATION a length near four billion pointing into a packet of a few bytes. | Three growing remaining-length checks make it unreachable, and a test asserts that the parts RECONSTRUCT the packet rather than merely fitting in it — the weaker assertion was measured to be vacuous. |
 | A one-byte table sweep looks exhaustive and can discriminate NOTHING, when the byte selects values of different widths. | The CONNACK property identifier is swept five times, once per value shape; the five accepted sets are the table AND say which identifier is which type. A single sweep would have refused 251 of 256 for the wrong reason. |
 | **The ack deserializers take a pointer and a length that an attacker can make disagree**, and that is exactly the input a differential cannot cover — the C would be reading past its own buffer, so its answer depends on memory rather than on the library. | The driver ASSERTS that every case's claim equals its body, so no such line can reach the trace; the over-claim is pinned on the Rust side alone by `a_claim_larger_than_the_buffer_is_refused`. |
 | A decision that comes down to a table of byte values looks proven by a handful of cases and is not. | All three of this slice's single-byte tables are swept over 256 values, and the ACCEPTED SET is printed in full rather than hashed — which is how the three specification divergences were found. |
@@ -162,3 +174,7 @@ header; it cannot yet fill in a packet body.
 | 2026-09-18 | **A sweep that confirms conformance is a result, and gets asserted the same way.** The ack deserializers' tables diverged from MQTT 5.0 in three places; the CONNACK's are exactly §3.2.2.2 and §3.2.2.3. That is worth an assertion rather than a sentence, and it is made against the CHECKED-IN TRACE, so the event it reports is the pinned oracle drifting. |
 | 2026-09-18 | **Where the C's status carries information, a `Result` must not throw it away.** `MQTTServerRefused` means the packet parsed and the broker said no, and the C fills its out-parameters on it because the Reason String that explains the refusal is in the property section. A refusal is therefore `Ok` here with `refused()` true. Mapping it to `Err` would have looked tidier and discarded the one thing a refused client needs. |
 | 2026-09-18 | **A check can be redundant in the ORACLE, not only in the transcription.** Third shape of the family: the size calculators' in-loop check is load-bearing in the C (wrapping arithmetic) and subsumed here (saturating); the ack deserializers' property bound is load-bearing in the C (pointer arithmetic) and subsumed here (a slice); the CONNACK's three-byte minimum is subsumed in BOTH arms, because `decodeVariableLength` refuses a zero-length buffer on its own. Kept because it states the packet's shape in one place; pinned so it stops being free the day it stops being true. |
+| 2026-09-18 | **"It fits" is not an invariant; "the parts reconstruct it" is.** The obvious assertion for a PUBLISH's payload — that it is no larger than the buffer — was MEASURED to be vacuous: a mutation that silently emptied the payload passed it. What has teeth is the identity, that two topic-length bytes plus the topic plus the packet id plus the encoded property length plus the properties plus the payload equal the remaining length. Where a parser splits a packet into parts, assert the split, not a bound on one part. |
+| 2026-09-18 | **A byte that selects between values of different SHAPES needs one sweep per shape — and so does a byte that changes the shape of the REST of the packet.** The CONNACK needed five property sweeps; the PUBLISH needs six, plus TWO flag sweeps, because QoS decides whether a packet identifier is present and therefore where everything after the topic begins. A single flags sweep would have refused half the nibble for the wrong reason. |
+| 2026-09-18 | **Three checks can be one finding.** All three of `checkPublishRemainingLength`'s calls survived poisoning, and for one reason: each is the same predicate as the bounded slice that follows it. The C needs them because it indexes with a length it was handed; this module reads through `bounded`. Recorded as one entry rather than three, because three entries would have suggested three investigations. |
+| 2026-09-18 | **A mutation that changes no answer is inert, not undetected — but say which.** Emptying the PUBLISH payload's `?` fallback passed every test, and the reason is that the slice can never fail: `payload_at + payload_length` is the remaining length exactly, and the property section's own slice already required that much buffer. That is now a comment at the call site, because "this `?` is unreachable" is a thing a reader will otherwise re-derive or, worse, quietly rely on. |

@@ -1,0 +1,54 @@
+geometry cases=44
+case 0 qos0-minimal type=30 rl=4 max=1024 alias=10 in=00016100 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=0 props=- payload=-
+case 1 qos0-with-payload type=30 rl=9 max=1024 alias=10 in=0001610068656c6c6f -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=0 props=- payload=68656c6c6f
+case 2 qos0-longer-topic type=30 rl=11 max=1024 alias=10 in=000573656e73650078797a -> Success qos=0 dup=0 ret=0 id=0 topic=73656e7365 proplen=0 props=- payload=78797a
+case 3 qos0-empty-payload type=30 rl=6 max=1024 alias=10 in=0003612f6200 -> Success qos=0 dup=0 ret=0 id=0 topic=612f62 proplen=0 props=- payload=-
+case 4 qos0-empty-topic type=30 rl=4 max=1024 alias=10 in=00000070 -> Success qos=0 dup=0 ret=0 id=0 topic=- proplen=0 props=- payload=70
+case 5 qos0-empty-topic-with-alias type=30 rl=7 max=1024 alias=10 in=00000323000570 -> Success qos=0 dup=0 ret=0 id=0 topic=- proplen=3 props=230005 payload=70
+case 6 qos0-three-byte-body type=30 rl=3 max=1024 alias=10 in=000161 -> BadResponse
+case 7 qos0-topic-past-the-end type=30 rl=5 max=1024 alias=10 in=0009610070 -> BadResponse
+case 8 retain type=31 rl=6 max=1024 alias=10 in=000161006869 -> Success qos=0 dup=0 ret=1 id=0 topic=61 proplen=0 props=- payload=6869
+case 9 dup-at-qos0 type=38 rl=6 max=1024 alias=10 in=000161006869 -> Success qos=0 dup=1 ret=0 id=0 topic=61 proplen=0 props=- payload=6869
+case 10 qos1 type=32 rl=8 max=1024 alias=10 in=000161002a006869 -> Success qos=1 dup=0 ret=0 id=42 topic=61 proplen=0 props=- payload=6869
+case 11 qos2 type=34 rl=8 max=1024 alias=10 in=000161002a006869 -> Success qos=2 dup=0 ret=0 id=42 topic=61 proplen=0 props=- payload=6869
+case 12 qos1-dup-retain type=3b rl=8 max=1024 alias=10 in=000161002a006869 -> Success qos=1 dup=1 ret=1 id=42 topic=61 proplen=0 props=- payload=6869
+case 13 qos3 type=36 rl=8 max=1024 alias=10 in=000161002a006869 -> BadResponse
+case 14 qos1-packet-id-zero type=32 rl=8 max=1024 alias=10 in=0001610000006869 -> BadResponse
+case 15 qos1-no-room-for-id type=32 rl=5 max=1024 alias=10 in=000161002a -> BadResponse
+case 16 qos1-empty-payload type=32 rl=6 max=1024 alias=10 in=000161002a00 -> Success qos=1 dup=0 ret=0 id=42 topic=61 proplen=0 props=- payload=-
+case 17 payload-format-zero type=30 rl=6 max=1024 alias=10 in=000161020100 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=2 props=0100 payload=-
+case 18 payload-format-one type=30 rl=6 max=1024 alias=10 in=000161020101 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=2 props=0101 payload=-
+case 19 payload-format-two type=30 rl=6 max=1024 alias=10 in=000161020102 -> BadResponse
+case 20 message-expiry type=30 rl=9 max=1024 alias=10 in=000161050200000e10 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=5 props=0200000e10 payload=-
+case 21 content-type type=30 rl=9 max=1024 alias=10 in=000161050300026162 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=5 props=0300026162 payload=-
+case 22 response-topic type=30 rl=9 max=1024 alias=10 in=000161050800027274 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=5 props=0800027274 payload=-
+case 23 correlation-data type=30 rl=9 max=1024 alias=10 in=00016105090002fffe -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=5 props=090002fffe payload=-
+case 24 topic-alias-in-range type=30 rl=7 max=1024 alias=10 in=00016103230005 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=3 props=230005 payload=-
+case 25 topic-alias-at-the-max type=30 rl=7 max=1024 alias=10 in=0001610323000a -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=3 props=23000a payload=-
+case 26 topic-alias-over-the-max type=30 rl=7 max=1024 alias=10 in=0001610323000b -> BadResponse
+case 27 topic-alias-zero type=30 rl=7 max=1024 alias=10 in=00016103230000 -> BadResponse
+case 28 topic-alias-when-none-allowed type=30 rl=7 max=1024 alias=0 in=00016103230001 -> BadResponse
+case 29 subscription-id type=30 rl=6 max=1024 alias=10 in=000161020b07 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=2 props=0b07 payload=-
+case 30 subscription-id-zero type=30 rl=6 max=1024 alias=10 in=000161020b00 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=2 props=0b00 payload=-
+case 31 subscription-id-zero-two-byte type=30 rl=7 max=1024 alias=10 in=000161030b8000 -> BadResponse
+case 32 two-subscription-ids type=30 rl=8 max=1024 alias=10 in=000161040b070b08 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=4 props=0b070b08 payload=-
+case 33 multi-byte-subscription-id type=30 rl=7 max=1024 alias=10 in=000161030b8001 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=3 props=0b8001 payload=-
+case 34 user-property type=30 rl=11 max=1024 alias=10 in=000161072600016b000176 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=7 props=2600016b000176 payload=-
+case 35 unknown-property type=30 rl=6 max=1024 alias=10 in=000161027f00 -> BadResponse
+case 36 repeated-content-type type=30 rl=14 max=1024 alias=10 in=0001610a03000261620300026364 -> BadResponse
+case 37 property-length-too-long type=30 rl=6 max=1024 alias=10 in=000161090100 -> BadResponse
+case 38 properties-then-payload type=30 rl=11 max=1024 alias=10 in=0001610201017061796c64 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=2 props=0101 payload=7061796c64
+case 39 qos2-properties-payload type=34 rl=13 max=1024 alias=10 in=000161002a0201017061796c64 -> Success qos=2 dup=0 ret=0 id=42 topic=61 proplen=2 props=0101 payload=7061796c64
+case 40 puback-routed-here type=40 rl=4 max=1024 alias=10 in=00016100 -> BadParameter
+case 41 connack-routed-here type=20 rl=4 max=1024 alias=10 in=00016100 -> BadParameter
+case 42 exactly-at-the-maximum type=30 rl=4 max=6 alias=10 in=00016100 -> Success qos=0 dup=0 ret=0 id=0 topic=61 proplen=0 props=- payload=-
+case 43 one-byte-over-the-maximum type=30 rl=4 max=5 alias=10 in=00016100 -> BadResponse
+flags-sweep no-packet-id accepted=0,1,8,9 n=4 rejected=12
+flags-sweep with-packet-id accepted=0,1,2,3,4,5,8,9,a,b,c,d n=12 rejected=4
+property-sweep one-byte accepted=01,0b n=2 rejected=254
+property-sweep two-byte accepted=23 n=1 rejected=255
+property-sweep four-byte accepted=02 n=1 rejected=255
+property-sweep string accepted=03,08,09 n=3 rejected=253
+property-sweep varint accepted=0b n=1 rejected=255
+property-sweep user-property accepted=26 n=1 rejected=255
+end

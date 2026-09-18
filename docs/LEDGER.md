@@ -218,6 +218,60 @@ is in the property section. `ConnAck::refused()` is that status; making it an
 thing a refused client needs. The trace prints values for both statuses and
 compares them.
 
+## Conformance (2026-09-18) — the incoming PUBLISH
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **54 / 54** | `cargo test -p rusty_rtos_mqtt-core --test publish`. C arm: `oracle/publish_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| named cases | **44** | every QoS, both flag bits, each of the eight properties on its own, the topic-alias bounds, the malformed property sections, the packet-id rules and the routing and maximum-packet-size boundaries. |
+| what is compared per case | **the status, QoS, DUP, RETAIN, the packet id, the topic name, the property length, the property section AND THE PAYLOAD** | the payload is the point of the packet and the one number another program will index with. A differential that compared only the status would be checking the wrong thing. |
+| flag sweeps | **2 x 16 calls** | the low nibble of the type byte, against a body WITH a packet identifier and a body without. |
+| property sweeps | **6 x 256 calls** | one per value shape, including the variable-length integer no other packet carries. |
+| divergences from MQTT 5.0 found | **2** | drafted at `kairos-upstream/drafts/coremqtt-publish-protocol-errors.md` and asserted from the CHECKED-IN TRACE. |
+| poison rows | **15 introduced, 12 caught** | QoS 3 accepted, DUP and RETAIN swapped, a packet id read at QoS 0, a zero packet id, two of the payload subtraction's four terms dropped, a Payload Format Indicator above 1, a zero Topic Alias, the alias maximum ignored, a repeated content type, an exact property fit demanded, and the type matched as a whole byte. |
+
+**The two divergences, both too permissive.** MQTT 5.0 §3.3.2.3.4 makes a
+zero-length topic name a protocol error unless a Topic Alias is present, and the
+C never links the two — so an application can be handed a message with no topic
+and no alias to resolve one. §3.3.2.3.8 makes a Subscription Identifier of zero
+a protocol error, and the value is never checked, though both its neighbours'
+are. Transcribed exactly; the Rust arm's oracle is the C, not the
+specification.
+
+**The second showed itself in the sweep, which is the argument for printing.**
+`property-sweep one-byte accepted=01,0b` lists `0x0B` because the one-byte value
+swept is `0x00` — the line says in passing that a zero Subscription Identifier
+is accepted. A digest would have said only that the arms agree.
+
+**QoS moves the body, so both sweeps had to be doubled.** A packet identifier
+sits between the topic and the properties at QoS 1 and 2 and not at QoS 0, so a
+body carrying one is malformed at QoS 0 and a body without one is malformed at
+QoS 1. One flags sweep would have refused half the nibble for the wrong reason:
+
+```
+flags-sweep no-packet-id   accepted=0,1,8,9                 n=4  rejected=12
+flags-sweep with-packet-id accepted=0,1,2,3,4,5,8,9,a,b,c,d n=12 rejected=4
+```
+
+The four missing from the second are the QoS 3 nibbles, the only combination
+MQTT forbids.
+
+**The three poisons that did not fire are ONE finding.** They are the three
+`checkPublishRemainingLength` calls, and each is the same predicate as the slice
+that follows it — the C needs them because it indexes with a length it was
+handed, and every read here goes through `bounded` instead. Fourth appearance of
+the family, and the first where three checks collapse into one reason.
+`the_remaining_length_floors_are_the_slice_bounds_restated` pins it.
+
+**And the test that pins it asserts an IDENTITY, because the obvious assertion
+was vacuous.** "The payload is not larger than the body" is satisfied by a
+payload silently emptied — measured: that exact mutation passed. What has teeth
+is that the PARTS RECONSTRUCT THE PACKET: two topic-length bytes plus the topic
+plus the packet id plus the encoded property length plus the properties plus the
+payload equals the remaining length, over 3,000-odd shapes including claims
+larger than the buffer. Both halves of the test assert their own
+non-vacuity.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -233,7 +287,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 60 passed, 0 failed (25 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack) |
+| `cargo test -p rusty_rtos_mqtt-core` | 71 passed, 0 failed (32 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -251,13 +305,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the packet-size calculators | ~300 | **remade and proven** |
 | `core_mqtt_serializer.c`, the acknowledgement deserializers | ~586 | **remade and proven** |
 | `core_mqtt_serializer.c`, the CONNACK path | ~566 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~4,418 | not written |
+| `core_mqtt_serializer.c`, the incoming PUBLISH | ~466 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~3,952 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **21.7 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **24.6 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

@@ -47,6 +47,9 @@ pub mod ack;
 /// Reading the CONNACK, which sets every limit the session then runs under.
 pub mod connack;
 
+/// Reading an incoming PUBLISH, the packet that carries application data.
+pub mod publish;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
@@ -60,6 +63,7 @@ pub use header::{
     variable_length_encoded_size,
 };
 pub use property::{PropertyError, PropertyReader, decode_variable_length, encode_string};
+pub use publish::{PublishError, PublishInfo, deserialize_publish};
 pub use size::{
     ListPacket, PINGREQ_PACKET_SIZE, PacketSize, SizeError, ack_packet_size, list_packet_size,
     subscribe_packet_size, unsubscribe_packet_size,

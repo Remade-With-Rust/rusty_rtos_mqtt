@@ -31,3 +31,6 @@ oracle/ack_driver.pdb
 oracle/connack_driver
 oracle/connack_driver.exe
 oracle/connack_driver.pdb
+oracle/publish_driver
+oracle/publish_driver.exe
+oracle/publish_driver.pdb

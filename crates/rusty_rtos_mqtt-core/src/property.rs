@@ -192,7 +192,60 @@ impl<'a> PropertyReader<'a> {
         Ok(value)
     }
 
-    /// `decodeUtf8`: a two-byte big-endian length, then that many bytes.
+    /// A VARIABLE-length integer property value, charged to the budget.
+    ///
+    /// Only one property in MQTT 5 is one — the Subscription Identifier a
+    /// PUBLISH carries — and the C decodes it inline rather than through a
+    /// helper:
+    ///
+    /// ```c
+    /// status = decodeVariableLength( pLocalIndex, ( size_t ) propertyLength, &subscriptionId );
+    /// pLocalIndex = &pLocalIndex[ variableLengthEncodedSize( subscriptionId ) ];
+    /// propertyLength -= variableLengthEncodedSize( subscriptionId );
+    /// ```
+    ///
+    /// The bound it passes is the BUDGET, and it trusts that the buffer has
+    /// that many bytes. This bounds by both, which is the usual difference.
+    ///
+    /// It takes no `used` flag: a PUBLISH matching several subscriptions
+    /// carries one identifier per match, so this property may repeat.
+    ///
+    /// # Errors
+    ///
+    /// [`PropertyError::BadResponse`] if the budget is empty, or the value is
+    /// truncated, too large, or encoded in more bytes than it needs.
+    pub fn variable_length(&mut self) -> Result<u32, PropertyError> {
+        if self.remaining < 1 {
+            return Err(PropertyError::BadResponse);
+        }
+
+        let Some(rest) = self.bytes.get(self.at..) else {
+            return Err(PropertyError::BadResponse);
+        };
+
+        // The C bounds by the budget alone; bounding by the buffer too is what
+        // keeps an over-claimed budget from reading past the packet.
+        let bound = if (self.remaining as usize) < rest.len() {
+            self.remaining as usize
+        } else {
+            rest.len()
+        };
+        let Some(window) = rest.get(..bound) else {
+            return Err(PropertyError::BadResponse);
+        };
+
+        let value = decode_variable_length(window)?;
+        let encoded = variable_length_encoded_size(value) as usize;
+
+        // Cannot overrun: `decode_variable_length` consumed no more than
+        // `bound` bytes and the non-minimal check makes `encoded` exactly what
+        // it consumed.
+        self.at = self.at.saturating_add(encoded);
+        self.remaining = self.remaining.saturating_sub(encoded as u32);
+
+        Ok(value)
+    }
+
     ///
     /// The bytes are handed back unvalidated, as the C does — MQTT calls these
     /// UTF-8 strings, and this primitive does not check that they are.

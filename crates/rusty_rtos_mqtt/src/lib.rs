@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 //! `rusty_rtos_mqtt` — the first slice of coreMQTT, remade in Rust.
 //!
-//! **What is here.** Seven slices, each diffed against the C.
+//! **What is here.** Eight slices, each diffed against the C.
 //!
 //! `core_mqtt_state.c` — the QoS 1 and QoS 2 delivery state machine, in both
 //! directions, across 24 scenarios. The differential compares both record
@@ -42,10 +42,16 @@
 //! introduces a value of a different width, and both tables turn out to be
 //! exactly MQTT 5.0's.
 //!
-//! **What is not:** the packet BODIES (~4,418 lines plus 2,056 of outgoing
-//! MQTT 5 property tables) and the connection state machine (`core_mqtt.c`,
-//! 5,618 lines). 21.7 % of coreMQTT is remade. This crate can read every packet
-//! a broker sends except a PUBLISH; it cannot yet put one together.
+//! The **incoming PUBLISH** — the last packet a broker can send, and the only
+//! one that carries application data. Its payload length is a four-term
+//! subtraction on numbers a broker chose, and an identity test asserts that the
+//! parts reconstruct the packet rather than merely fitting inside it. Two more
+//! divergences from MQTT 5.0 came out of it.
+//!
+//! **What is not:** the OUTGOING packet bodies (~3,952 lines plus 2,056 of
+//! outgoing MQTT 5 property tables) and the connection state machine
+//! (`core_mqtt.c`, 5,618 lines). 24.6 % of coreMQTT is remade. This crate can
+//! read a session; it cannot yet start one.
 //!
 //! Zero allocation, `no_std`, `forbid(unsafe)`.
 //!

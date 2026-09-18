@@ -5,9 +5,9 @@
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
-primitives, outgoing-packet writers, packet-size calculators and the incoming
-CONNACK and acknowledgement paths — seven proven slices of the Kairos remake of
-coreMQTT. MIT OR Apache-2.0.
+primitives, outgoing-packet writers, packet-size calculators and **every packet
+a broker can send** — eight proven slices of the Kairos remake of coreMQTT.
+MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
 v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
@@ -43,14 +43,19 @@ lives.
   sets every limit the session then runs under. Its reason-code and property
   tables are swept over 256 values each and are **exactly** MQTT 5.0's, which
   after the three divergences next door is a result rather than an assumption.
+- **Proven**: the incoming PUBLISH — the only packet that carries application
+  data, and the only one whose type byte is partly data. Its payload length is a
+  four-term subtraction, and an identity test asserts that the parts reconstruct
+  the packet rather than merely fitting inside it.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The packet *bodies* — the
-payloads that follow these headers — CONNECT's and PUBLISH's own size
-calculators and deserializers, the outgoing property tables, and the connection
-state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This crate has
-the pieces; it does not yet put a packet together.
+**Known gaps, and they are still most of coreMQTT.** The OUTGOING packet bodies
+— CONNECT, PUBLISH, SUBSCRIBE and UNSUBSCRIBE past their fixed headers —
+CONNECT's and PUBLISH's size calculators, the outgoing MQTT 5 property tables
+(`core_mqtt_prop_*.c`, 2,056 lines) and the connection state machine
+(`core_mqtt.c`, 5,618 lines) are **not written**. This crate can read a session;
+it cannot yet start one.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -69,15 +74,15 @@ flashed" means no chip has run it.
 
 ## Status
 
-**Seven slices built and proven; the rest of coreMQTT is not.** 413 trace lines
+**Eight slices built and proven; the rest of coreMQTT is not.** 413 trace lines
 agree with `core_mqtt_state.c`, 6,291,456 calls with the fixed-header codec, 104
 lines plus a 6,480-call sweep with the property primitives, 51 lines plus a
 1,536-call sweep with the outgoing-packet writers, 53 lines with the packet-size
 calculators, 57 lines plus three 256-value sweeps with the acknowledgement
-deserializers, and 54 lines plus six more sweeps with the CONNACK — all at the
-pinned v5.0.2. **21.7 % of the library.** 60 tests. This crate can now read
-every packet a broker sends except a PUBLISH, and write any outgoing header;
-it cannot yet fill in a packet body.
+deserializers, 54 lines plus six more with the CONNACK, and 54 lines plus eight
+more with the incoming PUBLISH — all at the pinned v5.0.2. **24.6 % of the
+library.** 71 tests. **This crate can read every packet a broker can send**, and
+write any outgoing header; it cannot yet fill in an outgoing packet body.
 
 ## What it is
 
@@ -548,6 +553,88 @@ by itself, **in both arms**. The size calculators' in-loop check is load-bearing
 in the C and subsumed here; the ack deserializers' property bound likewise;
 this one is redundant in the C too. Kept because it states the packet's shape in
 one place, and pinned so that stops being free the day it stops being true.
+
+## The incoming PUBLISH
+
+**54 trace lines agree with `core_mqtt_serializer.c`**, with two flag sweeps
+and six property sweeps.
+
+This is the last packet a broker can send, and the only one that carries
+**application data**. The acknowledgements and the CONNACK are protocol
+bookkeeping a library consumes; a PUBLISH is handed onward. Its topic name, its
+payload length and its property section are the numbers somebody else's code
+will index with, so a wrong length here is not a dropped packet — it is a buffer
+overrun one layer up, in code that trusted this one.
+
+It is also the only packet whose **type byte is partly data**: the low nibble
+carries DUP, QoS and RETAIN, so the first byte off the socket is four more
+inputs rather than a constant.
+
+### QoS moves the body, so the sweeps had to be doubled
+
+QoS decides whether a packet identifier sits between the topic and the
+properties — and everything downstream of it moves by two bytes. So the flags
+nibble cannot be swept with one body: one carrying a packet id is malformed at
+QoS 0, one without is malformed at QoS 1, and a single sweep would refuse half
+the nibble for the wrong reason.
+
+```
+flags-sweep no-packet-id   accepted=0,1,8,9                 n=4  rejected=12
+flags-sweep with-packet-id accepted=0,1,2,3,4,5,8,9,a,b,c,d n=12 rejected=4
+```
+
+The four missing from the second are the QoS 3 nibbles, which is the only
+combination MQTT forbids. The same rule gives the properties six sweeps — one
+per value shape, including the **variable-length integer** that no other packet
+carries.
+
+### The payload length is a four-term subtraction
+
+Remaining length, less the topic and its two length bytes, less the property
+section and the bytes that encode its length, less the packet identifier when
+there is one. The C does that on a `uint32_t`; a wrap would hand the application
+a payload length near four billion pointing into a packet of a few bytes, which
+is the worst failure this module could have.
+
+Three growing remaining-length checks are what make it unreachable — and a
+standing test asserts something stronger than "the payload is not too big",
+because a payload silently emptied satisfies that. It asserts an **identity**:
+the two topic-length bytes, the topic, the packet id, the encoded property
+length, the properties and the payload add up to the remaining length, over a
+space that includes claimed lengths larger than the buffer.
+
+### Two protocol errors MQTT 5.0 names and coreMQTT does not enforce
+
+1. **A zero-length topic name with no Topic Alias.** §3.3.2.3.4 calls it a
+   protocol error; the C never links the two, so the application is handed a
+   message with no topic and no alias with which to resolve one.
+2. **A Subscription Identifier of zero.** §3.3.2.3.8 calls it a protocol error;
+   the property's value is never checked, though its two neighbours' are.
+
+Both are transcribed exactly — the C is the oracle, not the specification — and
+both are asserted from the checked-in trace so a drift under the pin fails the
+suite. They are written up in `kairos-upstream/drafts/` for filing.
+
+The second shows itself in the sweep, which is the argument for printing
+accepted sets rather than hashing them: `property-sweep one-byte
+accepted=01,0b` lists `0x0B` because the one-byte value swept is `0x00` — the
+line says in passing that a zero Subscription Identifier is accepted.
+
+### Poison-proven on fifteen behaviours, twelve caught
+
+QoS 3 accepted; DUP and RETAIN swapped; a packet id read at QoS 0; a zero packet
+id; two of the payload subtraction's four terms dropped; a Payload Format
+Indicator above 1; a zero Topic Alias; the Topic Alias maximum ignored; a
+repeated content type; an exact property fit demanded where a floor is right;
+and the PUBLISH type matched as a whole byte rather than a nibble.
+
+**The three that did not fire are one finding.** They are the three
+`checkPublishRemainingLength` calls, and each is the same predicate as the slice
+that follows it — the C needs them because it indexes with a length it was
+handed, and every read here goes through a bounded slice instead. Kept for
+fidelity, and the equivalence is pinned. Fourth appearance of a family this
+package keeps meeting, and the first where three checks collapse into one
+reason.
 
 ## The gate
 

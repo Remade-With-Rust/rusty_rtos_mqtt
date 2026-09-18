@@ -96,3 +96,14 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/connack_driver" > "$here/connack.trace"
 echo "wrote $(wc -l < "$here/connack.trace") lines to $here/connack.trace"
+
+# The incoming-PUBLISH differential's C arm: the last packet a broker can send,
+# and the only one that carries application data.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/publish_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/publish_driver.c"
+
+"$here/publish_driver" > "$here/publish.trace"
+echo "wrote $(wc -l < "$here/publish.trace") lines to $here/publish.trace"
