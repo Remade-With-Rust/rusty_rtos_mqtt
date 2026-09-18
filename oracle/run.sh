@@ -187,3 +187,15 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/context_driver" > "$here/context.trace"
 echo "wrote $(wc -l < "$here/context.trace") lines to $here/context.trace"
+
+# The property-builder differential's C arm: `core_mqtt_prop_serializer.c`,
+# whose centre is a FOURTH copy of which property may go in which packet --
+# static, so it is asked through the eighteen public adders.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/propbuild_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/propbuild_driver.c"
+
+"$here/propbuild_driver" > "$here/propbuild.trace"
+echo "wrote $(wc -l < "$here/propbuild.trace") lines to $here/propbuild.trace"

@@ -547,6 +547,18 @@ only the answer.
 
 Drafted in `kairos-upstream/drafts/coremqtt-two-readers-one-header.md`.
 
+**And a line count that was wrong, found by the same instrument.** Driving the
+two header readers side by side is what showed that this slice had written a
+SECOND Rust copy of `MQTT_ProcessIncomingPacketTypeAndLength` and
+`processRemainingLength` — 138 C lines the fixed-header slice had already
+remade, and counted again. The duplicate (`reader::process_header`) was deleted,
+the differential re-pointed at
+`header::process_incoming_packet_type_and_length`, and it passed unchanged,
+which is itself the proof that the two were the same function. The slice is 230
+lines, not 368, and the package is **44.3 %**, not 45.2 %. The general rule is
+one the house already has for C code and had not applied to its own: **before
+writing a function, grep the crate for its shape.**
+
 **A trace should ask only what both arms can answer.** Three of the C's
 refusals have no reachable equivalent in Rust, all of the same shape: a pointer
 and a length that must agree and are never checked against each other
@@ -614,14 +626,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, SUBSCRIBE, UNSUBSCRIBE, the acks and PINGREQ | ~604 | **remade and proven** |
 | `core_mqtt_serializer.c`, the transport reader | ~114 | **remade and proven** |
 | `core_mqtt_serializer.c`, the outgoing property validators | 695 | **remade and proven** |
-| `core_mqtt_serializer.c`, the context, the constructors and the buffered reader | 368 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~734 | not written: two logging functions (165) and the file's preamble |
+| `core_mqtt_serializer.c`, the context, the constructors and the parameter validator | 230 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~870 | not written: two logging functions (165 lines) and the file's preamble. **Every other function in the file is remade** — checked against the file's function list, not against how complete the last slice felt. |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **45.2 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **44.3 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

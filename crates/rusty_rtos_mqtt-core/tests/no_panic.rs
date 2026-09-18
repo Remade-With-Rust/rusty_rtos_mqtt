@@ -418,7 +418,6 @@ fn arbitrary_outgoing_property_sections_never_panic() {
 // decoder above, one layer out.
 
 use rusty_rtos_mqtt_core::context::{ConnectionProperties, update_with_connect_props};
-use rusty_rtos_mqtt_core::reader::process_header;
 
 /// Arbitrary receive buffers through the buffered reader.
 #[test]
@@ -429,7 +428,7 @@ fn arbitrary_receive_buffers_never_panic() {
         let len = rng.below(8) as usize;
         let bytes: Vec<u8> = (0..len).map(|_| (rng.next() >> 16) as u8).collect();
 
-        if let Ok(header) = process_header(&bytes) {
+        if let Ok(header) = process_incoming_packet_type_and_length(&bytes, bytes.len()) {
             // The header must lie inside what arrived, or the caller would
             // slice a body that is not there.
             assert!(

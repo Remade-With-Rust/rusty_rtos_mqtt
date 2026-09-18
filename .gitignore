@@ -55,3 +55,6 @@ oracle/validate_driver.pdb
 oracle/context_driver
 oracle/context_driver.exe
 oracle/context_driver.pdb
+oracle/propbuild_driver
+oracle/propbuild_driver.exe
+oracle/propbuild_driver.pdb

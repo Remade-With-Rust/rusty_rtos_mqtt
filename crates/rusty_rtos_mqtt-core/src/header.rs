@@ -39,6 +39,8 @@ pub const REMAINING_LENGTH_INVALID: u32 = 268_435_456;
 /// the ack deserializer matches whole bytes and spells `0x62` out for itself,
 /// because a PUBREL with its reserved bit clear is a different packet.
 pub mod packet {
+    /// CONNECT, which only a client sends.
+    pub const CONNECT: u8 = 0x10;
     /// CONNACK, the broker's answer to a CONNECT.
     pub const CONNACK: u8 = 0x20;
     /// PUBLISH. The low nibble carries the QoS, DUP and RETAIN flags.
@@ -60,6 +62,15 @@ pub mod packet {
     pub const PINGRESP: u8 = 0xD0;
     /// DISCONNECT, which either end may send.
     pub const DISCONNECT: u8 = 0xE0;
+    /// PUBREL, whole: the nibble with its reserved bit, which MQTT requires
+    /// to be set. [`PUBREL_NIBBLE`] is the same type with the bit masked off.
+    pub const PUBREL: u8 = 0x62;
+    /// SUBSCRIBE, whole, including its reserved bit.
+    pub const SUBSCRIBE: u8 = 0x82;
+    /// UNSUBSCRIBE, whole, including its reserved bit.
+    pub const UNSUBSCRIBE: u8 = 0xA2;
+    /// PINGREQ, which only a client sends.
+    pub const PINGREQ: u8 = 0xC0;
     /// AUTH, MQTT 5's extended authentication exchange.
     pub const AUTH: u8 = 0xF0;
 }

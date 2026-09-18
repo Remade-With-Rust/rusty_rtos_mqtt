@@ -86,6 +86,8 @@ pub mod property {
 /// renumbering them would be a silent format change for anyone reading the
 /// bitmap rather than the fields.
 pub mod field {
+    /// Subscription Identifier.
+    pub const SUBSCRIPTION_ID: u32 = 1;
     /// Session Expiry Interval.
     pub const SESSION_EXPIRY_INTERVAL: u32 = 2;
     /// Receive Maximum.
@@ -94,12 +96,30 @@ pub mod field {
     pub const MAX_PACKET_SIZE: u32 = 4;
     /// Topic Alias Maximum.
     pub const TOPIC_ALIAS_MAX: u32 = 5;
+    /// Request Response Information.
+    pub const REQUEST_RESPONSE_INFO: u32 = 6;
+    /// Request Problem Information.
+    pub const REQUEST_PROBLEM_INFO: u32 = 7;
     /// Authentication Method.
     pub const AUTHENTICATION_METHOD: u32 = 9;
     /// Authentication Data.
     pub const AUTHENTICATION_DATA: u32 = 10;
+    /// Payload Format Indicator.
+    pub const PAYLOAD_FORMAT_INDICATOR: u32 = 11;
+    /// Message Expiry Interval.
+    pub const MESSAGE_EXPIRY_INTERVAL: u32 = 12;
+    /// Topic Alias.
+    pub const TOPIC_ALIAS: u32 = 13;
+    /// Response Topic.
+    pub const RESPONSE_TOPIC: u32 = 14;
+    /// Correlation Data.
+    pub const CORRELATION_DATA: u32 = 15;
+    /// Content Type.
+    pub const CONTENT_TYPE: u32 = 16;
     /// Reason String.
     pub const REASON_STRING: u32 = 17;
+    /// Will Delay Interval.
+    pub const WILL_DELAY: u32 = 18;
     /// Assigned Client Identifier.
     pub const ASSIGNED_CLIENT_ID: u32 = 19;
     /// Server Keep Alive.

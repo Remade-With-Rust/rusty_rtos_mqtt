@@ -28,14 +28,17 @@
 
 //! # And a second reader, over a buffer
 //!
-//! coreMQTT reads this same header **twice**, in two functions.
-//! [`read_header`] pulls it off a callback; [`process_header`] takes it out of
-//! a buffer the caller has already filled. Both were driven over the same bytes
-//! in `oracle/context.trace`, and they part company in one place that matters:
+//! coreMQTT reads this same header **twice**, in two functions. This one pulls
+//! it off a callback;
+//! [`process_incoming_packet_type_and_length`](crate::header::process_incoming_packet_type_and_length)
+//! takes it out of a buffer the caller has already filled, and was remade with
+//! the fixed-header codec. Both are driven over the same bytes in
+//! `oracle/context.trace`, and they part company in one place that matters:
 //!
 //! **only the buffered one can say "not yet".** Given a type byte and no length
-//! behind it, [`process_header`] answers [`ProcessError::NeedMoreBytes`] and
-//! [`read_header`] answers [`ReadError::BadResponse`] — for all 168 packet
+//! behind it, it answers
+//! [`HeaderError::NeedMoreBytes`](crate::header::HeaderError::NeedMoreBytes)
+//! and [`read_header`] answers [`ReadError::BadResponse`] — for all 168 packet
 //! types a client may receive, which the trace's `truncated-sweep` counts. So a
 //! non-blocking transport that hands over a header one byte at a time gets
 //! "malformed" from one reader and "call me again" from the other.
@@ -81,15 +84,16 @@ pub struct IncomingHeader {
     pub remaining_length: u32,
     /// The type byte plus the bytes that encoded the length.
     ///
-    /// **An addition for [`read_header`]; a transcription for
-    /// [`process_header`].** `MQTT_GetIncomingPacketTypeAndLength` sets
-    /// `remainingLength` and leaves `pIncomingPacket->headerLength` exactly as
-    /// the caller left it, so a C caller of *that* one has to count the bytes
-    /// itself; we counted them anyway, so the number is free. Its buffered
-    /// twin `MQTT_ProcessIncomingPacketTypeAndLength` **does** set it, and the
+    /// **This is an addition, not a transcription.**
+    /// `MQTT_GetIncomingPacketTypeAndLength` sets `remainingLength` and leaves
+    /// `pIncomingPacket->headerLength` exactly as the caller left it, so a C
+    /// caller has to count the bytes itself. We counted them anyway, so the
+    /// number is free. Its buffered twin
+    /// `MQTT_ProcessIncomingPacketTypeAndLength` **does** set it — see
+    /// [`PacketHeader::header_length`](crate::header::PacketHeader) — and the
     /// `dual` lines of `oracle/context.trace` compare it there. It stays out
-    /// of the callback-driven arm's trace, where the C has nothing to compare
-    /// it against, and `the_header_length_counts_the_type_byte` pins it.
+    /// of this arm's trace, where the C has nothing to compare it against, and
+    /// `the_header_length_counts_the_type_byte` pins it.
     pub header_length: usize,
 }
 
@@ -192,99 +196,6 @@ fn read_remaining_length<T: Transport + ?Sized>(
     }
 
     Ok((remaining_length, bytes_decoded))
-}
-
-/// Why a header could not be taken out of a buffer.
-///
-/// Three of the C's four. `MQTTBadParameter`, which it answers for a null
-/// buffer, a null index or a null packet, has no reachable equivalent — the
-/// twelfth, thirteenth and fourteenth members of that family.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProcessError {
-    /// `MQTTNoDataAvailable`: not one byte has arrived.
-    NoDataAvailable,
-    /// `MQTTNeedMoreBytes`: the header has started and has not finished.
-    ///
-    /// **A status the library uses in one function.** Its callback-driven twin
-    /// has nothing for this and answers [`ReadError::BadResponse`] instead; see
-    /// the module note.
-    NeedMoreBytes,
-    /// `MQTTBadResponse`: a type a client may not receive, or a remaining
-    /// length that is too long or non-minimally encoded.
-    BadResponse,
-}
-
-/// `MQTT_ProcessIncomingPacketTypeAndLength` and the `processRemainingLength`
-/// it drives: the same header, out of a buffer.
-///
-/// `received` is what the transport has delivered so far — which may be less
-/// than one packet, and may be more. **The C takes the count and the buffer
-/// separately and never checks them against each other**, so a caller who
-/// passes a count larger than the buffer gets a read past the end; one slice
-/// carries both and the question cannot arise.
-///
-/// # Errors
-///
-/// [`ProcessError::NoDataAvailable`] if `received` is empty,
-/// [`ProcessError::NeedMoreBytes`] if the length has started and not finished,
-/// and [`ProcessError::BadResponse`] for a type a client may not receive, a
-/// length in more than four bytes, or a non-minimally encoded one.
-pub fn process_header(received: &[u8]) -> Result<IncomingHeader, ProcessError> {
-    // The C's `*pIndex < 1U`. Nothing has arrived, which is a different thing
-    // from a header that has started.
-    let Some(packet_type) = received.first().copied() else {
-        return Err(ProcessError::NoDataAvailable);
-    };
-
-    if !incoming_packet_valid(packet_type) {
-        return Err(ProcessError::BadResponse);
-    }
-
-    let mut remaining_length = 0u32;
-    let mut multiplier = 1u32;
-    let mut bytes_decoded = 0usize;
-
-    loop {
-        if multiplier > 2_097_152 {
-            return Err(ProcessError::BadResponse);
-        }
-
-        // The C's `*pIndex > ( bytesDecoded + 1U )`: the byte after the type
-        // byte and the ones already decoded. A slice index says the same thing
-        // and cannot disagree with the buffer it indexes.
-        let at = bytes_decoded.saturating_add(1);
-        let Some(byte) = received.get(at).copied() else {
-            return Err(ProcessError::NeedMoreBytes);
-        };
-
-        remaining_length =
-            remaining_length.saturating_add(u32::from(byte & 0x7F).saturating_mul(multiplier));
-        multiplier = multiplier.saturating_mul(128);
-        bytes_decoded = bytes_decoded.saturating_add(1);
-
-        if (byte & 0x80) == 0 {
-            break;
-        }
-    }
-
-    // The non-minimal check, as everywhere else in the package.
-    if bytes_decoded != variable_length_encoded_size(remaining_length) as usize {
-        return Err(ProcessError::BadResponse);
-    }
-
-    // The C follows it with `CHECK_U32T_OVERFLOWS_SIZE_T( remainingLength )`,
-    // because its `remainingLength` field is a `size_t`. Ours is a `u32` and
-    // the field it feeds is a `u32`, so there is nothing to overflow: the
-    // fifteenth member of the "load-bearing in the C, subsumed here" family,
-    // and the only one whose reachability depends on the width of a pointer.
-
-    Ok(IncomingHeader {
-        packet_type,
-        remaining_length,
-        // Set HERE and not by the callback-driven twin, which leaves the
-        // caller's value alone -- see [`IncomingHeader::header_length`].
-        header_length: bytes_decoded.saturating_add(1),
-    })
 }
 
 #[cfg(test)]

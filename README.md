@@ -112,9 +112,9 @@ directions, 30 lines plus a 32-combination whole-packet sweep with the CONNECT,
 SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, 20 lines comparing
 the transport reader CALL FOR CALL, 94 lines across the six outgoing property
 validators — 36 of them sweeps — and 56 lines finishing the file, which run the
-library's TWO header readers side by side — all at the pinned v5.0.2. **45.2 %
-of the library, and `core_mqtt_serializer.c` is complete but for its logging.**
-139 tests. **This crate reads every packet a broker can send, off a socket or
+library's TWO header readers side by side — all at the pinned v5.0.2. **44.3 %
+of the library, and every function in `core_mqtt_serializer.c` but its two
+logging ones is remade.** 139 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1099,13 +1099,14 @@ inside its loop, and a zero Receive Maximum accepted.
 ## The connection context, and the last of the serializer
 
 **56 trace lines agree with `core_mqtt_serializer.c`** — and with this slice
-`core_mqtt_serializer.c` is **finished** except for its two logging functions.
+**every function in that file but its two logging ones** is remade.
 
-What was left of the file was the part that is not a codec: the two
-constructors, the helper that fills a connection context from a CONNECT's
-properties, the parameter validator an outgoing PUBLISH goes through, and a
-**second reader of the fixed header** — the buffered twin of the callback-driven
-one proven in the previous slice.
+What was left was the part that is not a codec: the two constructors, the helper
+that fills a connection context from a CONNECT's properties, and the parameter
+validator an outgoing PUBLISH goes through — 230 lines. The differential also
+drives the file's **second reader of the fixed header**, which the fixed-header
+slice had already remade, because the interesting thing about it is how it
+compares with the callback-driven one.
 
 ### The instrument: one job, done twice
 
@@ -1129,7 +1130,10 @@ here it found three things:
    answers `MQTTBadResponse` — and the doxygen for that one shows a
    **non-blocking** loop ending in `assert( status == MQTTSuccess )`. A TCP
    segment boundary between byte 1 and byte 2 of a header is ordinary, and it
-   closes a connection carrying a well-formed packet.
+   closes a connection carrying a well-formed packet. Running the two side by
+   side is also what showed that this slice had written a **second Rust copy**
+   of the buffered reader, which slice 2 had already remade; it was deleted and
+   the line count corrected.
 2. **`updateContextWithConnectProps` stores what the validator refuses** — a
    Receive Maximum of zero, a Maximum Packet Size of zero, a Request Problem
    Information of 2, authentication data with no method. The second of those

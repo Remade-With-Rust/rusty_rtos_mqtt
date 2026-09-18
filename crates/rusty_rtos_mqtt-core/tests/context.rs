@@ -34,10 +34,9 @@ use rusty_rtos_mqtt_core::builder::{BuilderError, PropertyBuilder};
 use rusty_rtos_mqtt_core::context::{
     ConnectionProperties, ContextError, update_with_connect_props,
 };
+use rusty_rtos_mqtt_core::header::{HeaderError, process_incoming_packet_type_and_length};
 use rusty_rtos_mqtt_core::outpublish::OutgoingPublish;
-use rusty_rtos_mqtt_core::reader::{
-    ProcessError, ReadError, Received, Transport, process_header, read_header,
-};
+use rusty_rtos_mqtt_core::reader::{ReadError, Received, Transport, read_header};
 use rusty_rtos_mqtt_core::state::QoS;
 use rusty_rtos_mqtt_core::validate::{ValidateError, validate_publish_params};
 
@@ -65,11 +64,11 @@ impl Transport for Arrived<'_> {
     }
 }
 
-fn process_status(error: ProcessError) -> &'static str {
+fn process_status(error: HeaderError) -> &'static str {
     match error {
-        ProcessError::NoDataAvailable => "NoDataAvailable",
-        ProcessError::NeedMoreBytes => "NeedMoreBytes",
-        ProcessError::BadResponse => "BadResponse",
+        HeaderError::NoDataAvailable => "NoDataAvailable",
+        HeaderError::NeedMoreBytes => "NeedMoreBytes",
+        HeaderError::BadResponse => "BadResponse",
     }
 }
 
@@ -133,7 +132,7 @@ fn dual(bytes: &[u8]) -> (String, String, u64, u64) {
     let mut process = String::new();
     let mut get = String::new();
 
-    let a = match process_header(bytes) {
+    let a = match process_incoming_packet_type_and_length(bytes, bytes.len()) {
         Ok(header) => {
             let _ = write!(
                 process,
@@ -188,7 +187,10 @@ fn builder_line(name: &str, length: usize) -> String {
                 builder.fields()
             );
         }
-        Err(BuilderError::Empty | BuilderError::TooLong) => line.push_str("BadParameter"),
+        // Every one of these is `MQTTBadParameter` in the C except
+        // `NoMemory`, which is its own status.
+        Err(BuilderError::NoMemory) => line.push_str("NoMemory"),
+        Err(_) => line.push_str("BadParameter"),
     }
 
     line
