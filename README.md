@@ -5,8 +5,9 @@
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
-primitives, outgoing-packet writers and packet-size calculators — five proven
-slices of the Kairos remake of coreMQTT. MIT OR Apache-2.0.
+primitives, outgoing-packet writers, packet-size calculators and
+acknowledgement deserializers — six proven slices of the Kairos remake of
+coreMQTT. MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
 v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
@@ -33,14 +34,20 @@ lives.
 - **Proven**: the packet-size calculators that feed those writers, including the
   268,435,455 boundary — reached only by computing the exact values each check
   lands on, because a case that overshoots cannot tell a `>=` from a `>`.
+- **Proven**: the acknowledgement deserializers — the first code here whose
+  whole input a broker chooses — with all three of its single-byte decision
+  tables swept over 256 values. Reading those tables turned up **three
+  divergences from MQTT 5.0**, including a conformant UNSUBACK that a stock
+  client refuses.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
 **Known gaps, and they are still most of coreMQTT.** The packet *bodies* — the
 payloads that follow these headers — CONNECT's and PUBLISH's own size
-calculators, the property tables on top of the primitives, and the connection
-state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This crate has
-the pieces; it does not yet put a packet together.
+calculators and deserializers, the CONNACK path, the property tables on top of
+the primitives, and the connection state machine (`core_mqtt.c`, 5,618 lines)
+are **not written**. This crate has the pieces; it does not yet put a packet
+together.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -59,13 +66,15 @@ flashed" means no chip has run it.
 
 ## Status
 
-**Five slices built and proven; the rest of coreMQTT is not.** 413 trace lines
+**Six slices built and proven; the rest of coreMQTT is not.** 413 trace lines
 agree with `core_mqtt_state.c`, 6,291,456 calls with the fixed-header codec, 104
 lines plus a 6,480-call sweep with the property primitives, 51 lines plus a
-1,536-call sweep with the outgoing-packet writers, and 53 lines with the
-packet-size calculators — all at the pinned v5.0.2. **14.3 % of the library.**
-40 tests. This crate can recognise a packet arriving, read its properties, size
-an outgoing one and write its header; it cannot yet fill in the body.
+1,536-call sweep with the outgoing-packet writers, 53 lines with the packet-size
+calculators, and 57 lines plus three 256-value sweeps with the acknowledgement
+deserializers — all at the pinned v5.0.2. **18.0 % of the library.** 49 tests.
+This crate can recognise a packet arriving, read its properties, size an
+outgoing one, write its header and read any acknowledgement whole; it cannot yet
+fill in a packet body.
 
 ## What it is
 
@@ -368,6 +377,92 @@ A calculator that agreed with the C and a writer that agreed with the C could
 still disagree with **each other** about the same packet, and neither
 differential would notice. A standing test feeds each calculator's answer
 straight into the matching writer and checks the bytes add up.
+
+## The acknowledgement deserializers
+
+**57 trace lines agree with `core_mqtt_serializer.c`**, including three sweeps
+over all 256 values of a single byte.
+
+The five slices above are all outgoing: a state machine, a header codec,
+property reads out of a buffer the caller already trusted, writers and the
+sizes that feed them. **This is the first one whose whole input is chosen by the
+other end of the socket.** `MQTT_DeserializeAck` is what a client runs on every
+PUBACK, PUBREC, PUBREL, PUBCOMP, SUBACK, UNSUBACK and PINGRESP that arrives,
+before anything above it has looked at a byte.
+
+### Three sweeps, and each one prints the table it found
+
+Three of this function's decisions come down to a switch on one byte: which
+packet type routes where, which reason codes a publish acknowledgement may
+carry, and which a SUBACK or UNSUBACK may. A byte is enumerable, so each is
+swept over all 256 values — and the trace prints the **accepted set in full**,
+not a count and a digest:
+
+```
+suback-status-sweep accepted=00,01,02,80,83,87,8f,91,97,9e,a1,a2 n=12 refused=244
+ack-reason-sweep puback accepted=00,10,80,83,87,90,91,92,97,99 n=10 refused=246
+ack-reason-sweep pubrel accepted=00,10,80,83,87,90,91,92,97,99 n=10 refused=246
+type-sweep accepted=40,50,62,70,90,b0 n=6 badparam=1 badresponse=249
+```
+
+Twelve values out of 256, ten out of 256, six out of 256. A table that small is
+worth reading rather than hashing, and reading it is how the next section
+happened.
+
+### Three divergences from MQTT 5.0, found by reading the trace
+
+1. **SUBACK and UNSUBACK share one reason-code table, and it is the SUBACK
+   one.** It accepts `0x01` and `0x02` — granted QoS values an UNSUBACK cannot
+   grant — and refuses **`0x11`, "No subscription existed"**, which MQTT 5.0
+   §3.11.3 lists as legal. A client that unsubscribes from a filter it is not
+   subscribed to gets `MQTTBadResponse`, its callback never fires, and it
+   cannot tell the case from a corrupt packet.
+2. **A SUBACK with no reason codes at all is accepted.** The count is derived by
+   subtraction and never checked against zero, so a packet whose property
+   section fills the body exactly reports success with nothing in it.
+3. **`0x92`, "Packet identifier not found", is accepted in a PUBACK**, where
+   MQTT 5.0 lists it only for PUBREL and PUBCOMP. Too permissive rather than
+   too strict, so nothing conformant is lost.
+
+All three are transcribed exactly, because the C is the oracle — and a test
+asserts them **from the checked-in trace**, so the day the pinned oracle changes
+its mind, the suite says so. They are written up in `kairos-upstream/drafts/`
+for filing.
+
+### A case that cannot be a differential
+
+`MQTTPacketInfo_t` carries a pointer and a claimed length, and every
+deserializer indexes the first using the second. Making them disagree is the
+attack — and it is also the one case the differential cannot cover, because the
+C would then be reading past its own buffer and its answer would depend on
+whatever is next in memory. **That is not an oracle, it is a coin toss that
+happens to be reproducible on one machine.**
+
+So the driver *asserts* that every case's claim equals its body, and the
+over-claim is pinned on the Rust side alone: a claim of 4 to 63 bytes over a
+three-byte buffer must be refused, every time. Third instance of the category,
+after the fixed header's byte count and the property reader's budget.
+
+### Poison-proven on eleven behaviours, ten caught
+
+Accepting `0x11`; dropping the granted-QoS arm; reading the reason code one
+byte early; routing a PUBREL by its `0x60` nibble rather than the `0x62` byte;
+ignoring `requestProblemInfo`; allowing a zero packet id; forgetting the type
+byte in the packet size; allowing a repeated reason string; refusing a CONNACK
+as a bad packet rather than a bad call; and treating the pub-ack property
+section as a bound rather than an exact fit.
+
+That last one needed a case adding. A property section that parses cleanly and
+is followed by **one extra byte** was the shape the workload was missing: without
+the exact-fit check the section reads fine and the trailing byte is simply never
+looked at, so a broker could carry data inside a packet the client believes it
+has read whole.
+
+The eleventh is a genuine property. The SUB/UNSUBACK property bound is the same
+predicate as the slice that follows it — the C needs it precisely because it has
+no slice, only pointer arithmetic — so loosening it changes no answer here. It
+is kept for fidelity and the equivalence is pinned, which is the second time a
+check load-bearing in the C has turned out to be subsumed in the transcription.
 
 ## The gate
 

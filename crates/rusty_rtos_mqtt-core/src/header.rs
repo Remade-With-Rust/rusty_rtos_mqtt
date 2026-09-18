@@ -33,19 +33,34 @@ pub const MAX_REMAINING_LENGTH: u32 = 268_435_455;
 pub const REMAINING_LENGTH_INVALID: u32 = 268_435_456;
 
 /// The packet types that may arrive from a broker, masked to their high nibble.
-mod packet {
+///
+/// Public because a caller who has taken bytes off a socket needs them to build
+/// an [`ack::PacketInfo`](crate::ack::PacketInfo). Note that these are NIBBLES:
+/// the ack deserializer matches whole bytes and spells `0x62` out for itself,
+/// because a PUBREL with its reserved bit clear is a different packet.
+pub mod packet {
+    /// CONNACK, the broker's answer to a CONNECT.
     pub const CONNACK: u8 = 0x20;
+    /// PUBLISH. The low nibble carries the QoS, DUP and RETAIN flags.
     pub const PUBLISH: u8 = 0x30;
+    /// PUBACK, a QoS 1 delivery acknowledged.
     pub const PUBACK: u8 = 0x40;
+    /// PUBREC, the first half of a QoS 2 handshake.
     pub const PUBREC: u8 = 0x50;
     /// A PUBREL is `0x62`; masked to its nibble it is `0x60`, and the low bits
     /// are checked separately.
     pub const PUBREL_NIBBLE: u8 = 0x60;
+    /// PUBCOMP, a QoS 2 handshake finished.
     pub const PUBCOMP: u8 = 0x70;
+    /// SUBACK, one reason code per topic filter subscribed.
     pub const SUBACK: u8 = 0x90;
+    /// UNSUBACK, one reason code per topic filter unsubscribed.
     pub const UNSUBACK: u8 = 0xB0;
+    /// PINGRESP, which carries nothing.
     pub const PINGRESP: u8 = 0xD0;
+    /// DISCONNECT, which either end may send.
     pub const DISCONNECT: u8 = 0xE0;
+    /// AUTH, MQTT 5's extended authentication exchange.
     pub const AUTH: u8 = 0xF0;
 }
 

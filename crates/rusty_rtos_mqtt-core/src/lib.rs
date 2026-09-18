@@ -41,6 +41,12 @@ pub mod writer;
 /// How big an outgoing packet will be.
 pub mod size;
 
+/// Reading an acknowledgement off the wire.
+pub mod ack;
+
+pub use ack::{
+    AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
+};
 pub use header::{
     HeaderError, MAX_REMAINING_LENGTH, PacketHeader, REMAINING_LENGTH_INVALID,
     encode_variable_length, incoming_packet_valid, process_incoming_packet_type_and_length,

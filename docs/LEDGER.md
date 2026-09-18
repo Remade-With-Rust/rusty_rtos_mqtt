@@ -129,6 +129,51 @@ therefore prints values only on success. Fourth member of the family this
 package keeps finding: **a differential bounds what the C answers, never what it
 touches, and never what it leaves behind.**
 
+## Conformance (2026-09-18) — the acknowledgement deserializers
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **57 / 57** | `cargo test -p rusty_rtos_mqtt-core --test ack`. C arm: `oracle/ack_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| named cases | **51** | every publish-ack shape, both list acks, PINGRESP, the routing refusals and the maximum-packet-size boundary, plus two generated long packets that exercise a TWO-byte remaining length at exactly the maximum and one under. |
+| what is compared per case | **the status, and on success the packet id, the reason codes AND the property section** | the three things the C hands back. A status-only comparison would bless a transcription that answered correctly while pointing at the wrong bytes. |
+| single-byte sweeps | **3 x 256 calls** | the SUBACK/UNSUBACK status table, the publish-ack reason table (twice, at `0x40` and `0x62`), and the packet-type routing switch. Each prints its ACCEPTED SET in full rather than a digest, because twelve values out of 256 is a table a reader can check. |
+| divergences from MQTT 5.0 found | **3** | drafted at `kairos-upstream/drafts/coremqtt-unsuback-reason-code-table.md` and asserted from the CHECKED-IN trace, so the suite reports it if the pinned oracle ever changes its mind. |
+| poison rows | **11 introduced, 10 caught** | `0x11` accepted, the granted-QoS arm dropped, the reason code read one byte early, a PUBREL routed by its `0x60` nibble, `requestProblemInfo` ignored, a zero packet id allowed, the type byte dropped from the packet size, a repeated reason string allowed, a CONNACK refused as a bad packet, and the pub-ack property section treated as a bound rather than an exact fit. |
+
+**The three divergences, because they are the point of the slice.**
+`readSubackStatus` is the SUBACK table and it serves UNSUBACK too, so it accepts
+granted-QoS bytes an UNSUBACK cannot grant and refuses **`0x11`, "No
+subscription existed"**, which MQTT 5.0 §3.11.3 lists as legal — a client
+unsubscribing from a filter it is not subscribed to gets `MQTTBadResponse` and
+its callback never fires. A SUBACK with **zero** reason codes is accepted,
+because the count is derived by subtraction and never checked. And `0x92` is
+accepted in a PUBACK, where the specification lists it only for PUBREL and
+PUBCOMP. All three are transcribed exactly; the Rust arm is a transcription and
+its oracle is the C.
+
+**The poison that needed a case was the exact-fit check**, and the shape the
+workload was missing is worth naming: a property section that parses **cleanly**
+followed by one extra byte. Without the exact fit the section reads fine and the
+trailing byte is never looked at, so a broker could carry data inside a packet
+the client believes it has read whole. A section that is merely malformed does
+not show it, because the property walk refuses that anyway.
+
+**The eleventh is a genuine property, and the second of its kind here.** The
+SUB/UNSUBACK property bound is the same predicate as the slice that follows it;
+the C needs the check precisely because it has no slice, only pointer
+arithmetic. Loosening it changes no answer, so no test fails when it is
+loosened — and that is the finding.
+`the_sub_ack_bound_is_the_slice_bound_restated` pins the equivalence over 768
+combinations, and fails the day it stops holding.
+
+**One case cannot be a differential at all.** `MQTTPacketInfo_t` carries a
+pointer and a claimed length, and making them disagree is the attack — but it is
+also the one input where the C reads past its own buffer, so its answer depends
+on memory rather than on the library. The driver ASSERTS that every case's claim
+equals its body, and the over-claim is pinned on the Rust side alone by
+`a_claim_larger_than_the_buffer_is_refused`. Third instance of the category,
+after the fixed header's byte count and the property reader's budget.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -144,12 +189,12 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 40 passed, 0 failed (11 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size) |
+| `cargo test -p rusty_rtos_mqtt-core` | 49 passed, 0 failed (17 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
 
-## Scope, in lines (2026-09-18)
+## Scope, in lines (2026-09-18, revised)
 
 A count that belongs here because the README's honesty depends on it.
 
@@ -160,13 +205,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer_private.c`, the property primitives | ~309 | **remade and proven** |
 | `core_mqtt_serializer_private.c`, the fixed-header writers | ~180 | **remade and proven** |
 | `core_mqtt_serializer.c`, the packet-size calculators | ~300 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~5,570 | not written |
+| `core_mqtt_serializer.c`, the acknowledgement deserializers | ~586 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~4,984 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **14.3 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **18.0 % remade** |
 
 No speed number and no size number: nothing here has been benchmarked, and
 nothing has run on a chip.

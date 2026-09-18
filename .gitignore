@@ -25,3 +25,6 @@ oracle/writer_driver.pdb
 oracle/size_driver
 oracle/size_driver.exe
 oracle/size_driver.pdb
+oracle/ack_driver
+oracle/ack_driver.exe
+oracle/ack_driver.pdb

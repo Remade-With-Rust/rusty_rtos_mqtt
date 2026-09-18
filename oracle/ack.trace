@@ -1,0 +1,57 @@
+geometry cases=49
+case 0 puback-bare type=40 rl=2 max=1024 rp=1 in=002a -> Success id=42 rc=- props=-
+case 1 puback-largest-id type=40 rl=2 max=1024 rp=1 in=ffff -> Success id=65535 rc=- props=-
+case 2 puback-id-zero type=40 rl=2 max=1024 rp=1 in=0000 -> BadResponse
+case 3 puback-one-byte-body type=40 rl=1 max=1024 rp=1 in=00 -> BadResponse
+case 4 puback-empty-body type=40 rl=0 max=1024 rp=1 in=- -> BadResponse
+case 5 puback-success-reason type=40 rl=3 max=1024 rp=1 in=002a00 -> Success id=42 rc=00 props=-
+case 6 puback-no-subscribers type=40 rl=3 max=1024 rp=1 in=002a10 -> Success id=42 rc=10 props=-
+case 7 puback-not-authorized type=40 rl=3 max=1024 rp=1 in=002a87 -> Success id=42 rc=87 props=-
+case 8 puback-pubrel-only-code type=40 rl=3 max=1024 rp=1 in=002a92 -> Success id=42 rc=92 props=-
+case 9 puback-unknown-reason type=40 rl=3 max=1024 rp=1 in=002a05 -> BadResponse
+case 10 pubrec-success type=50 rl=3 max=1024 rp=1 in=123400 -> Success id=4660 rc=00 props=-
+case 11 pubrel-not-found type=62 rl=3 max=1024 rp=1 in=123492 -> Success id=4660 rc=92 props=-
+case 12 pubrel-reserved-bit-clear type=60 rl=3 max=1024 rp=1 in=123400 -> BadResponse
+case 13 pubcomp-success type=70 rl=3 max=1024 rp=1 in=000100 -> Success id=1 rc=00 props=-
+case 14 puback-empty-properties type=40 rl=4 max=1024 rp=1 in=002a0000 -> Success id=42 rc=00 props=-
+case 15 puback-reason-string type=40 rl=9 max=1024 rp=1 in=002a00051f00026869 -> Success id=42 rc=00 props=1f00026869
+case 16 puback-user-property type=40 rl=12 max=1024 rp=1 in=002a00082600016b00027676 -> Success id=42 rc=00 props=2600016b00027676
+case 17 puback-property-slack type=40 rl=13 max=1024 rp=1 in=002a00092600016b0002767600 -> BadResponse
+case 18 puback-two-user-properties type=40 rl=18 max=1024 rp=1 in=002a000e2600016100016226000163000164 -> Success id=42 rc=00 props=2600016100016226000163000164
+case 19 puback-unknown-property type=40 rl=6 max=1024 rp=1 in=002a00021100 -> BadResponse
+case 20 puback-property-overrun type=40 rl=6 max=1024 rp=1 in=002a00091f00 -> BadResponse
+case 21 puback-property-underrun type=40 rl=8 max=1024 rp=1 in=002a00021f000000 -> BadResponse
+case 22 puback-property-trailing-byte type=40 rl=8 max=1024 rp=1 in=002a00031f0000ff -> BadResponse
+case 23 puback-repeated-reason type=40 rl=12 max=1024 rp=1 in=002a00081f0001611f000162 -> BadResponse
+case 24 puback-props-unrequested type=40 rl=9 max=1024 rp=0 in=002a00051f00026869 -> BadResponse
+case 25 puback-reason-unrequested type=40 rl=3 max=1024 rp=0 in=002a00 -> Success id=42 rc=00 props=-
+case 26 suback-one-granted type=90 rl=4 max=1024 rp=1 in=002a0001 -> Success id=42 rc=01 props=-
+case 27 suback-three-granted type=90 rl=6 max=1024 rp=1 in=002a00000102 -> Success id=42 rc=000102 props=-
+case 28 suback-refused type=90 rl=4 max=1024 rp=1 in=002a0080 -> Success id=42 rc=80 props=-
+case 29 suback-unknown-status type=90 rl=4 max=1024 rp=1 in=002a007f -> BadResponse
+case 30 suback-id-zero type=90 rl=4 max=1024 rp=1 in=00000001 -> BadResponse
+case 31 suback-three-byte-body type=90 rl=3 max=1024 rp=1 in=002a00 -> BadResponse
+case 32 suback-property-too-short type=90 rl=4 max=1024 rp=1 in=002a0100 -> BadResponse
+case 33 suback-zero-reason-codes type=90 rl=6 max=1024 rp=1 in=002a031f0000 -> Success id=42 rc=- props=1f0000
+case 34 unsuback-zero-reason-codes type=b0 rl=6 max=1024 rp=1 in=002a031f0000 -> Success id=42 rc=- props=1f0000
+case 35 suback-with-reason-string type=90 rl=10 max=1024 rp=1 in=002a051f000268690001 -> Success id=42 rc=0001 props=1f00026869
+case 36 suback-property-overrun type=90 rl=5 max=1024 rp=1 in=002a7f0001 -> BadResponse
+case 37 suback-unknown-property type=90 rl=6 max=1024 rp=1 in=002a02110001 -> BadResponse
+case 38 unsuback-success type=b0 rl=4 max=1024 rp=1 in=002a0000 -> Success id=42 rc=00 props=-
+case 39 unsuback-no-subscription type=b0 rl=4 max=1024 rp=1 in=002a0011 -> BadResponse
+case 40 unsuback-granted-qos type=b0 rl=4 max=1024 rp=1 in=002a0002 -> Success id=42 rc=02 props=-
+case 41 unsuback-two-codes type=b0 rl=5 max=1024 rp=1 in=002a00008f -> Success id=42 rc=008f props=-
+case 42 pingresp-empty type=d0 rl=0 max=1024 rp=1 in=- -> Success id=- rc=- props=-
+case 43 pingresp-with-a-body type=d0 rl=1 max=1024 rp=1 in=00 -> BadResponse
+case 44 connack-routed-here type=20 rl=4 max=1024 rp=1 in=00000000 -> BadParameter
+case 45 publish-routed-here type=30 rl=4 max=1024 rp=1 in=002a0000 -> BadResponse
+case 46 zero-max-packet-size type=40 rl=2 max=0 rp=1 in=002a -> BadParameter
+case 47 exactly-at-the-maximum type=40 rl=2 max=4 rp=1 in=002a -> Success id=42 rc=- props=-
+case 48 one-byte-over-the-maximum type=40 rl=2 max=3 rp=1 in=002a -> BadResponse
+long exactly-at-the-maximum type=40 rl=128 max=131 rp=1 in=002a007c1f00796162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f7071 -> Success id=42 rc=00 props=1f00796162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f7071
+long one-byte-over-the-maximum type=40 rl=128 max=130 rp=1 in=002a007c1f00796162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f7071 -> BadResponse
+suback-status-sweep accepted=00,01,02,80,83,87,8f,91,97,9e,a1,a2 n=12 refused=244
+ack-reason-sweep puback accepted=00,10,80,83,87,90,91,92,97,99 n=10 refused=246
+ack-reason-sweep pubrel accepted=00,10,80,83,87,90,91,92,97,99 n=10 refused=246
+type-sweep accepted=40,50,62,70,90,b0 n=6 badparam=1 badresponse=249
+end

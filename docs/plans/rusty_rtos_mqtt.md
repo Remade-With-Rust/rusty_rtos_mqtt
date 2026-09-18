@@ -38,9 +38,10 @@ registers are touched (that is a port crate).
 ## 3. The surface as built
 
 `core_mqtt_state.c`, whole; out of `core_mqtt_serializer.c` the fixed-header
-codec (~240 lines) and the packet-size calculators (~300); and, out of
-`core_mqtt_serializer_private.c`, the property primitives (~309 lines) and the
-fixed-header writers (~180). 14.3 % of the library.
+codec (~240 lines), the packet-size calculators (~300) and the acknowledgement
+deserializers (~586); and, out of `core_mqtt_serializer_private.c`, the property
+primitives (~309 lines) and the fixed-header writers (~180). 18.0 % of the
+library.
 
 | ours | coreMQTT | note |
 |---|---|---|
@@ -66,10 +67,22 @@ The size calculators, in `size`:
 | `list_packet_size(kind, ...)` | `calculateSubscriptionPacketSize` | the C's `static` helper, exposed because the two callers differ by one byte per filter and hiding that would duplicate it |
 | `PacketSize { remaining_length, packet_size }` | the two out-parameters | returned together, so a refusal cannot hand back a half-updated pair |
 
-**Not built:** the rest of `core_mqtt_serializer.c` (~5,570 lines),
-`core_mqtt_prop_*.c` (2,056 for MQTT 5 properties) and `core_mqtt.c` (5,618).
-This crate can recognise a packet arriving, read its properties and size an
-outgoing one; it cannot yet fill in the body.
+The acknowledgement deserializers, in `ack`:
+
+| ours | coreMQTT | note |
+|---|---|---|
+| `deserialize_ack(&PacketInfo, &Limits)` | `MQTT_DeserializeAck` | returns the three out-parameters together, so a refusal cannot leave one updated and the others not |
+| `PacketInfo { packet_type, remaining_length, remaining_data }` | `MQTTPacketInfo_t` | keeps the CLAIMED length and the bytes that EXIST apart, which is where the attack lives |
+| `Limits { max_packet_size, request_problem_info }` | the two `MQTTConnectionProperties_t` fields this path reads | naming them keeps the CONNACK slice from being a prerequisite |
+| `AckInfo { packet_id, reason_codes, properties }` | `pPacketId`, `MQTTReasonCodeInfo_t`, `MQTTPropBuilder_t` | `packet_id` is `Option`, because only a PINGRESP may have none |
+| `AckError::{BadParameter, BadResponse}` | the two statuses this path returns | five of the C's `MQTTBadParameter` paths are NULL checks with no Rust equivalent |
+| `PUBREL` | `MQTT_PACKET_TYPE_PUBREL` | `0x62`, spelled out rather than reusing the `0x60` nibble the header codec masks to |
+
+**Not built:** the rest of `core_mqtt_serializer.c` (~4,984 lines) — the packet
+BODIES, the CONNACK path and the PUBLISH deserializer — `core_mqtt_prop_*.c`
+(2,056 for MQTT 5 properties) and `core_mqtt.c` (5,618). This crate can
+recognise a packet arriving, read its properties, size an outgoing one and read
+any acknowledgement whole; it cannot yet fill in a packet body.
 
 ## 4. Roadmap
 
@@ -81,6 +94,7 @@ outgoing one; it cannot yet fill in the body.
 | **property primitives** | the bounded integer, string and user-property reads | K7 | **104 trace lines plus a 6,480-call sweep agree, comparing the cursor and the budget after every read** ✅ |
 | **fixed-header writers** | the header of every outgoing packet type | K7 | **51 trace lines plus a 1,536-call exhaustive CONNECT-flags sweep agree, byte for byte** ✅ |
 | **packet sizes** | the remaining length and packet size every writer is handed | K7 | **53 trace lines agree, including the 268,435,455 boundary at the exact value each check tests, and the calculators reconcile with the writers** ✅ |
+| **acknowledgement deserializers** | every ack a broker can send, except CONNACK | K7 | **57 trace lines plus three 256-value sweeps agree; the sweeps' accepted sets are printed in full, and reading them found three divergences from MQTT 5.0** ✅ |
 | CONNECT / PUBLISH / SUBSCRIBE | the rest of the wire codec | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
 | MQTT 5 properties | `core_mqtt_prop_*.c` | K7 | the same, over a property corpus |
 | the connection | `core_mqtt.c` over a transport | K7 | a callback-for-callback differential, the shape `rusty_rtos_sntp`'s client established |
@@ -103,7 +117,9 @@ outgoing one; it cannot yet fill in the body.
 | The packet ids driving this come from the broker, so they are attacker-chosen. | `tests/no_panic.rs` drives 200 x 60 random operations over a four-id space and checks well-formedness after every step: no duplicate id, no occupied record at QoS 0, no empty slot keeping stale fields. |
 | A resend cursor that failed to advance would spin rather than fail. | Asserted, the same way `rusty_rtos_json`'s iterator and `rusty_rtos_sntp`'s retry loops are. |
 | A guard whose effect is invisible in every scenario looks like dead code and gets removed. | Two were found by poisons that did not fire. One (the ack/QoS check) was a WORKLOAD gap and got a scenario; the other (the self-transition guard) is genuinely an optimisation, and a unit test pins why. |
-| **This is 2,235 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **This is 2,821 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **The ack deserializers take a pointer and a length that an attacker can make disagree**, and that is exactly the input a differential cannot cover — the C would be reading past its own buffer, so its answer depends on memory rather than on the library. | The driver ASSERTS that every case's claim equals its body, so no such line can reach the trace; the over-claim is pinned on the Rust side alone by `a_claim_larger_than_the_buffer_is_refused`. |
+| A decision that comes down to a table of byte values looks proven by a handful of cases and is not. | All three of this slice's single-byte tables are swept over 256 values, and the ACCEPTED SET is printed in full rather than hashed — which is how the three specification divergences were found. |
 | A size calculator's limit checks sit three orders of magnitude above anything a plausible workload reaches, so they look proven and are not exercised at all. | The property length is the one input that can bridge the gap, and two cases are computed to land on each check EXACTLY. A case that overshoots cannot tell a `>=` from a `>`. |
 | The calculator and the writer could each agree with the C and disagree with **each other** about the same packet, and neither differential would see it. | A standing test feeds each calculator's answer into the matching writer and reconciles the bytes. |
 
@@ -125,3 +141,7 @@ outgoing one; it cannot yet fill in the body.
 | 2026-09-18 | **A check that is load-bearing in the C can be redundant in the transcription, when the arithmetic differs.** The in-loop overflow check guards a `uint32_t` accumulator whose additions WRAP: without it a long enough subscription list wraps past zero and comes out under the limit. Ours SATURATE, so the same list ends at `u32::MAX` and the final check refuses it regardless. The check is kept — a differential arm does not tidy its oracle — and a unit test records that removing it would be safe here and unsafe there, which is the part that would otherwise be lost. Fourth non-firing poison in this package, and the third that was a genuine property. |
 | 2026-09-18 | **A `Result` cannot reproduce a half-written out-parameter, so the trace does not pretend to.** The C writes both out-parameters before its final maximum-packet-size check, so a failed call has still updated them and a caller who ignored the status would serialize with a length the library had just refused. There is no error-path value in a `Result` to hand back, so the driver prints values only on success and the divergence is recorded rather than papered over. This is the same family as the writer's write-past-reported-length and the header's over-large count: **a differential bounds what the C answers, never what it touches, and never what it leaves behind.** |
 | 2026-09-18 | **Two slices that each agree with the C still need a test that they agree with EACH OTHER.** The calculator says how many bytes a packet takes and the writer lays down its header; both differentials could pass while the pair disagreed about the same packet, because neither arm ever sees the other. `the_calculated_size_matches_what_the_writer_lays_down` feeds each calculator's answer straight into the matching writer and reconciles the total. The first cross-slice test in K7, and the shape every later pair of slices should copy. |
+| 2026-09-18 | **Where a differential's own input would make the C read out of bounds, the case does not belong in the trace.** `MQTTPacketInfo_t`'s pointer and claimed length can disagree, and that is the attack — but the C's answer for such an input depends on whatever is next in memory, so the line would be a coin toss that happens to be reproducible on one machine, not an oracle. The driver asserts the two are equal and the over-claim is pinned on the Rust side alone. Third instance of the category the fixed header opened. |
+| 2026-09-18 | **A one-byte decision table is swept and PRINTED, not hashed.** Twelve accepted values out of 256 is small enough for a reader to check against the specification, and a digest would have said only that the arms agree. Printing the accepted set into the checked-in trace is what turned up three divergences from MQTT 5.0 in `readSubackStatus` and `logAckResponse` — a digest would have concealed every one of them behind a passing test. |
+| 2026-09-18 | **A divergence from the SPECIFICATION is transcribed, and asserted from the TRACE.** The Rust arm reproduces all three faithfully, because it is a transcription and its oracle is the C. The test that records them reads the checked-in trace rather than our own code, so it is the pinned oracle changing its mind that fails the suite — which is the event that matters. |
+| 2026-09-18 | **An exact-fit check needs a workload that parses CLEANLY and then has one byte too many.** A poison that turned the pub-ack property section's equality into a bound did not fire, because every malformed section in the corpus was already refused by the property walk. The missing shape was a valid section followed by a byte nobody would ever look at — which is precisely the hazard the check exists for, since a broker could carry data inside a packet the client believes it read whole. |

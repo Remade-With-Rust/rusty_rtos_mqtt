@@ -161,6 +161,37 @@ impl<'a> PropertyReader<'a> {
         Ok(u32::from_be_bytes(array))
     }
 
+    /// The property IDENTIFIER byte that introduces each property.
+    ///
+    /// The C does not call a helper for this — every property loop spells out
+    /// `propertyId = *pLocalIndex; pLocalIndex++; propertyLength -= 1U;`, with
+    /// the loop condition `propertyLength > 0` standing in for a budget check
+    /// and nothing at all standing in for a buffer check. This charges the
+    /// budget the same way and refuses rather than reading past the slice.
+    ///
+    /// It takes no `used` flag: an id may obviously repeat, since a property
+    /// section is a sequence of them.
+    ///
+    /// # Errors
+    ///
+    /// [`PropertyError::BadResponse`] if the budget is empty or the byte is
+    /// not there.
+    pub fn property_id(&mut self) -> Result<u8, PropertyError> {
+        if self.remaining < 1 {
+            return Err(PropertyError::BadResponse);
+        }
+
+        let Some(bytes) = self.take(1) else {
+            return Err(PropertyError::BadResponse);
+        };
+        let Some(value) = bytes.first().copied() else {
+            return Err(PropertyError::BadResponse);
+        };
+
+        self.remaining = self.remaining.saturating_sub(1);
+        Ok(value)
+    }
+
     /// `decodeUtf8`: a two-byte big-endian length, then that many bytes.
     ///
     /// The bytes are handed back unvalidated, as the C does — MQTT calls these

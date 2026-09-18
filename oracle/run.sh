@@ -74,3 +74,14 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/size_driver" > "$here/size.trace"
 echo "wrote $(wc -l < "$here/size.trace") lines to $here/size.trace"
+
+# The acknowledgement-deserializer differential's C arm: the first INCOMING
+# slice, so the first one whose whole input an attacker chooses.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/ack_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/ack_driver.c"
+
+"$here/ack_driver" > "$here/ack.trace"
+echo "wrote $(wc -l < "$here/ack.trace") lines to $here/ack.trace"
