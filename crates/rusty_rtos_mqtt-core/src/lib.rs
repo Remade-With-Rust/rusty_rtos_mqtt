@@ -53,12 +53,19 @@ pub mod publish;
 /// The DISCONNECT, which in MQTT 5 travels both ways.
 pub mod disconnect;
 
+/// Building a CONNECT, the packet that starts a session.
+pub mod connect;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
 pub use connack::{
     CONNACK_MINIMUM_SIZE, ClientSettings, ConnAck, ConnAckError, SESSION_PRESENT_MASK,
     ServerSettings, deserialize_connack,
+};
+pub use connect::{
+    CONNECT_HEADER_SIZE, Connect, ConnectError, ConnectSize, Will, connect_packet_size,
+    serialize_connect,
 };
 pub use disconnect::{
     Disconnect, DisconnectError, DisconnectSize, deserialize_disconnect, disconnect_packet_size,

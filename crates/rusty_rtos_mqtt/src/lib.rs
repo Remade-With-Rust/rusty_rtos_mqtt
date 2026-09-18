@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 //! `rusty_rtos_mqtt` — the first slice of coreMQTT, remade in Rust.
 //!
-//! **What is here.** Nine slices, each diffed against the C.
+//! **What is here.** Ten slices, each diffed against the C.
 //!
 //! `core_mqtt_state.c` — the QoS 1 and QoS 2 delivery state machine, in both
 //! directions, across 24 scenarios. The differential compares both record
@@ -53,10 +53,17 @@
 //! twice with different answers, a property table per direction, and a server
 //! reason code a stock client refuses.
 //!
-//! **What is not:** the OUTGOING packet bodies (~3,447 lines plus 2,056 of
-//! outgoing MQTT 5 property tables) and the connection state machine
-//! (`core_mqtt.c`, 5,618 lines). 27.9 % of coreMQTT is remade. This crate can
-//! read a session and end one; it cannot yet start one.
+//! The **CONNECT** — the packet that starts a session, and the largest thing a
+//! client assembles: eight length-prefixed fields, four of them optional, and a
+//! flags byte that has to agree with which ones are there. Proven byte for byte,
+//! because every field carries its own length and a packet with two of them
+//! swapped still parses.
+//!
+//! **What is not:** the outgoing PUBLISH, SUBSCRIBE and UNSUBSCRIBE bodies
+//! (~3,099 lines plus 2,056 of outgoing MQTT 5 property tables) and the
+//! connection state machine (`core_mqtt.c`, 5,618 lines). 30.1 % of coreMQTT is
+//! remade. This crate can open and close a session and read everything inside
+//! one; it cannot yet publish or subscribe.
 //!
 //! Zero allocation, `no_std`, `forbid(unsafe)`.
 //!

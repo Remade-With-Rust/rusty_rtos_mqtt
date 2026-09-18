@@ -319,6 +319,48 @@ Fifth appearance of the family, and the first on the WRITING side.
 zero to three past the packet, for four packet shapes, and asserts both that the
 answer matches and that nothing past the reported size was touched.
 
+## Conformance (2026-09-18) — the CONNECT
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **30 / 30** | `cargo test -p rusty_rtos_mqtt-core --test connect`, byte for byte. C arm: `oracle/connect_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| named cases | **20** | every optional field absent, empty and present; all three will QoS values; both property sections; and the buffer at, one under and far under the packet size. |
+| 16-bit boundary cases | **7** | one field at a time at 65,535 and at 65,536. These exist because **all five of the C's 16-bit checks were unreachable** from a table of short fields, and a poison on each of them passed. They print the status and the sizes, not the bytes: a 65 KB packet's hex would be 131 KB on one line. |
+| whole-packet sweep | **32 combinations** | every combination of user name, password, will and properties, at two will QoS values, compared by an FNV-1a digest of the WHOLE serialized packet plus its shortest and longest length. |
+| poison rows | **13 introduced, 12 caught** | the NUL rule, a nine-byte header, a field's length prefix, each property section's encoded length, the will counted when absent, FOUR orderings, an absent user name written as empty, and three 16-bit limits. |
+
+**The ordering poisons are why this is byte-for-byte.** Every field in a
+CONNECT's payload is length-prefixed, so swapping the will topic with the will
+payload, or the user name with the password, still **parses** — it publishes the
+will to the wrong topic and sends the password as the user name. Four such swaps
+are in the poison set and all four are caught; nothing but a byte comparison
+would have seen them.
+
+**The flags byte and the payload are one claim in two places.** The writers'
+slice swept the flags byte exhaustively and proved every bit, and could prove
+nothing about whether the payload matches it. The 32-combination sweep digests
+the WHOLE packet, so a field written when its bit is clear moves the bytes.
+
+**A client identifier may not begin with NUL**, which is incidental. The C's
+check is one expression meant to catch a length/pointer mismatch, and it
+dereferences the pointer: `*pClientIdentifier == '\0'`. So a first byte of zero
+is refused and a zero anywhere else is not. MQTT 5.0 §1.5.4 forbids U+0000
+anywhere in a UTF-8 string, so the refusal is defensible — but it is one byte,
+and by accident. Transcribed and pinned.
+
+**One check the differential structurally cannot reach, and that is the
+finding.** The C refuses a total past 268,435,455, and no field can get within
+four orders of magnitude; the property section can, because the function reads
+the builder's `currentIndex` and never touches `pBuffer` — a caller may claim 268
+million bytes while pointing at eight, and the driver did exactly that at the
+exact boundary (`currentIndex = 268435437` lands on 268,435,455) before the
+cases were withdrawn. **A `&[u8]` cannot make that claim**, so the class of input
+that makes the check load-bearing does not exist here. The check stays and a
+test pins its operator, which is `>` where
+[the DISCONNECT's](#conformance-2026-09-18--the-disconnect-both-directions) is
+`>=` — two calculators one function apart in the same C file disagreeing about
+whether 268,435,455 is legal.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -334,7 +376,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 81 passed, 0 failed (38 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect) |
+| `cargo test -p rusty_rtos_mqtt-core` | 89 passed, 0 failed (43 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -354,13 +396,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the CONNACK path | ~566 | **remade and proven** |
 | `core_mqtt_serializer.c`, the incoming PUBLISH | ~466 | **remade and proven** |
 | `core_mqtt_serializer.c`, the DISCONNECT, both directions | ~505 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~3,447 | not written |
+| `core_mqtt_serializer.c`, the CONNECT | ~348 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~3,099 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **27.9 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **30.1 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

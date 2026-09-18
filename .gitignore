@@ -37,3 +37,6 @@ oracle/publish_driver.pdb
 oracle/disconnect_driver
 oracle/disconnect_driver.exe
 oracle/disconnect_driver.pdb
+oracle/connect_driver
+oracle/connect_driver.exe
+oracle/connect_driver.pdb

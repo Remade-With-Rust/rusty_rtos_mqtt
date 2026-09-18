@@ -118,3 +118,15 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/disconnect_driver" > "$here/disconnect.trace"
 echo "wrote $(wc -l < "$here/disconnect.trace") lines to $here/disconnect.trace"
+
+# The CONNECT differential's C arm: the packet that starts a session, sized and
+# then serialized in one case because the C's own comment makes that the API
+# contract.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/connect_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/connect_driver.c"
+
+"$here/connect_driver" > "$here/connect.trace"
+echo "wrote $(wc -l < "$here/connect.trace") lines to $here/connect.trace"

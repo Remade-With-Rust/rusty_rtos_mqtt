@@ -5,9 +5,9 @@
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
-primitives, outgoing-packet writers, packet-size calculators and **every packet
-a broker can send** — nine proven slices of the Kairos remake of coreMQTT.
-MIT OR Apache-2.0.
+primitives, outgoing-packet writers, packet-size calculators, **every packet a
+broker can send** and the CONNECT that starts a session — ten proven slices of
+the Kairos remake of coreMQTT. MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
 v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
@@ -51,15 +51,19 @@ lives.
   validation table read twice, with different answers, and a property table per
   direction. Comparing the two accepted sets against the specification found a
   server reason code a stock client refuses.
+- **Proven**: the CONNECT — eight length-prefixed fields, four optional, and a
+  flags byte that has to agree with which ones are there. Sized and serialized
+  in one case, byte for byte, with the ORDERING poisons that a length-prefixed
+  format hides best.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The OUTGOING packet bodies
-— CONNECT, PUBLISH, SUBSCRIBE and UNSUBSCRIBE past their fixed headers —
-CONNECT's and PUBLISH's size calculators, the outgoing MQTT 5 property tables
-(`core_mqtt_prop_*.c`, 2,056 lines) and the connection state machine
-(`core_mqtt.c`, 5,618 lines) are **not written**. This crate can read a session
-and end one; it cannot yet start one.
+**Known gaps, and they are still most of coreMQTT.** The outgoing PUBLISH,
+SUBSCRIBE and UNSUBSCRIBE bodies and PUBLISH's size calculator, the outgoing
+MQTT 5 property tables (`core_mqtt_prop_*.c`, 2,056 lines) and the connection
+state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This crate can
+open and close a session and read everything inside one; it cannot yet publish
+or subscribe.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -78,17 +82,17 @@ flashed" means no chip has run it.
 
 ## Status
 
-**Nine slices built and proven; the rest of coreMQTT is not.** 413 trace lines
+**Ten slices built and proven; the rest of coreMQTT is not.** 413 trace lines
 agree with `core_mqtt_state.c`, 6,291,456 calls with the fixed-header codec, 104
 lines plus a 6,480-call sweep with the property primitives, 51 lines plus a
 1,536-call sweep with the outgoing-packet writers, 53 lines with the packet-size
 calculators, 57 lines plus three 256-value sweeps with the acknowledgement
 deserializers, 54 lines plus six more with the CONNACK, 54 lines plus eight more
-with the incoming PUBLISH, and 58 lines plus twelve more with the DISCONNECT in
-both directions — all at the pinned v5.0.2. **27.9 % of the library.** 81 tests.
-**This crate reads every packet a broker can send** — a claim the README made one
-slice too early and this slice makes true — and writes any outgoing header and
-the whole DISCONNECT; it cannot yet fill in the other outgoing packet bodies.
+with the incoming PUBLISH, 58 lines plus twelve more with the DISCONNECT in both
+directions, and 30 lines plus a 32-combination whole-packet sweep with the
+CONNECT — all at the pinned v5.0.2. **30.1 % of the library.** 89 tests. **This
+crate reads every packet a broker can send, and can start and end a session**;
+it cannot yet build an outgoing PUBLISH, SUBSCRIBE or UNSUBSCRIBE body.
 
 ## What it is
 
@@ -715,6 +719,94 @@ test could matter. The fifteenth is a genuine property — the up-front buffer
 check is the same predicate as the three slices that follow it, because the C
 has pointer writes where this has slices. Fifth appearance of that family, and
 the first on the writing side.
+
+## The CONNECT
+
+**30 trace lines agree with `core_mqtt_serializer.c`**, byte for byte, plus a
+32-combination sweep of the optional fields.
+
+This is the packet that **starts** a session, and the largest thing a client
+assembles: a ten-byte variable header, a property section, a client identifier,
+optionally a will (its own property section, a topic and a payload) and
+optionally a user name and a password. Eight length-prefixed fields, four of
+them optional.
+
+### The flags byte and the payload are one claim in two places
+
+Three bits of the CONNECT's flags byte say whether a will, a user name and a
+password are present; the payload must then carry exactly those, in that order.
+[The writers](#the-fixed-header-writers) swept that flags byte exhaustively and
+proved every bit — and could prove nothing about whether the payload then
+matches it.
+
+So the two are proven **together**: a 32-combination sweep over the four
+optional inputs, compared by an FNV-1a digest of the **whole serialized
+packet**. A field written when its bit is clear moves the bytes, and a digest
+over the whole packet is what sees it.
+
+The ordering poisons are the point. Every field is length-prefixed, so swapping
+the will topic with the will payload, or the user name with the password, still
+*parses* — it just publishes the will to the wrong topic and sends the password
+as the user name. Nothing but a byte-for-byte comparison catches that, and both
+swaps are in the poison set.
+
+### Absent, empty and present are three states
+
+The C distinguishes a NULL `pUserName` from a non-NULL one of length zero: the
+first clears a flag bit and writes nothing, the second sets the bit and writes
+two zero bytes. `Option<&[u8]>` models exactly that, and it is the reason
+`ConnectInfo` uses it. The trace prints `-` for absent and `.` for
+present-and-empty, because a trace that showed both as "nothing" could not tell
+them apart.
+
+The *property* sections are different again — the C treats a NULL builder and an
+empty one identically — so they are plain slices, and nothing is lost.
+
+### A client identifier may not begin with NUL
+
+The C has one expression meant to catch a length/pointer mismatch:
+
+```c
+( pConnectInfo->clientIdentifierLength == 0U ) !=
+    ( ( pConnectInfo->pClientIdentifier == NULL ) ||
+      ( *( pConnectInfo->pClientIdentifier ) == '\0' ) )
+```
+
+Its NULL half cannot happen here — a `&[u8]` carries its own length. Its other
+half can, and it means an identifier whose **first** byte is zero is refused
+while one with a zero anywhere else is accepted. MQTT 5.0 §1.5.4 forbids U+0000
+anywhere in a UTF-8 string, so refusing is defensible; the C refuses only the
+first byte, and incidentally. Transcribed, and pinned.
+
+### Poison-proven on thirteen behaviours, twelve caught
+
+The NUL rule; a nine-byte header; a field's two length bytes; each property
+section's encoded length; the will counted when absent; **four different
+orderings**; an absent user name written as empty; and the three 16-bit field
+limits.
+
+Those last three needed cases built for them. Every field in the table is a
+handful of bytes and the limit is 65,535, so **all five 16-bit checks were
+unreachable** — a poison on any of them passed. Seven cases now put one field at
+a time at 65,535 and at 65,536, and print the status and the sizes rather than
+131 KB of hex.
+
+The thirteenth is the buffer check, subsumed by the bounded writes below it —
+the sixth appearance of that family and the second on the writing side.
+
+### One check the differential structurally cannot reach
+
+`MQTT_GetConnectPacketSize` refuses a total past 268,435,455, and no combination
+of fields gets within four orders of magnitude. The property section can reach
+it in the C — the function reads the builder's `currentIndex` and never touches
+its buffer, so a caller can claim 268 million bytes while pointing at eight, and
+the driver did exactly that before the cases were withdrawn.
+
+**A `&[u8]` cannot make that claim.** Its length is its data, so the entire class
+of input that makes the check load-bearing does not exist on this side. What is
+left is a caller genuinely holding 268 MB of property bytes — a 64-bit host's
+problem, not a microcontroller's. The check stays, and a test pins its operator,
+which is where it differs from the DISCONNECT's calculator one function away.
 
 ## The gate
 

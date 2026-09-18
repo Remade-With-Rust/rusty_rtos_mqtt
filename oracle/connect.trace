@@ -1,0 +1,30 @@
+geometry cases=20 big=7
+case 0 minimal clean=1 ka=60 id=616263 user=- pass=- props=- will=- buf=192 -> size Success remaining=16 packet=18 serialize Success bytes=101000044d5154540502003c000003616263
+case 1 persistent-session clean=0 ka=0 id=616263 user=- pass=- props=- will=- buf=192 -> size Success remaining=16 packet=18 serialize Success bytes=101000044d51545405000000000003616263
+case 2 empty-client-id clean=1 ka=60 id=. user=- pass=- props=- will=- buf=192 -> size Success remaining=13 packet=15 serialize Success bytes=100d00044d5154540502003c000000
+case 3 client-id-starting-with-nul clean=1 ka=60 id=006263 user=- pass=- props=- will=- buf=192 -> size BadParameter
+case 4 client-id-with-an-inner-nul clean=1 ka=60 id=610063 user=- pass=- props=- will=- buf=192 -> size Success remaining=16 packet=18 serialize Success bytes=101000044d5154540502003c000003610063
+case 5 username clean=1 ka=60 id=616263 user=75736572 pass=- props=- will=- buf=192 -> size Success remaining=22 packet=24 serialize Success bytes=101600044d5154540582003c000003616263000475736572
+case 6 empty-username clean=1 ka=60 id=616263 user=. pass=- props=- will=- buf=192 -> size Success remaining=18 packet=20 serialize Success bytes=101200044d5154540582003c0000036162630000
+case 7 username-and-password clean=1 ka=60 id=616263 user=75736572 pass=7077 props=- will=- buf=192 -> size Success remaining=26 packet=28 serialize Success bytes=101a00044d51545405c2003c00000361626300047573657200027077
+case 8 password-without-username clean=1 ka=60 id=616263 user=- pass=7077 props=- will=- buf=192 -> size Success remaining=20 packet=22 serialize Success bytes=101400044d5154540542003c00000361626300027077
+case 9 session-expiry-property clean=1 ka=60 id=616263 user=- pass=- props=1100000e10 will=- buf=192 -> size Success remaining=21 packet=23 serialize Success bytes=101500044d5154540502003c051100000e100003616263
+case 10 two-properties clean=1 ka=60 id=616263 user=- pass=- props=1100000e10210014 will=- buf=192 -> size Success remaining=24 packet=26 serialize Success bytes=101800044d5154540502003c081100000e102100140003616263
+case 11 will-qos0 clean=1 ka=60 id=616263 user=- pass=- props=- will=0,0,6c617374,627965,- buf=192 -> size Success remaining=28 packet=30 serialize Success bytes=101c00044d5154540506003c0000036162630000046c6173740003627965
+case 12 will-qos1-retained clean=1 ka=60 id=616263 user=- pass=- props=- will=1,1,6c617374,627965,- buf=192 -> size Success remaining=28 packet=30 serialize Success bytes=101c00044d515454052e003c0000036162630000046c6173740003627965
+case 13 will-qos2 clean=1 ka=60 id=616263 user=- pass=- props=- will=2,0,6c617374,627965,- buf=192 -> size Success remaining=28 packet=30 serialize Success bytes=101c00044d5154540516003c0000036162630000046c6173740003627965
+case 14 will-with-an-empty-payload clean=1 ka=60 id=616263 user=- pass=- props=- will=0,0,6c617374,.,- buf=192 -> size Success remaining=25 packet=27 serialize Success bytes=101900044d5154540506003c0000036162630000046c6173740000
+case 15 will-with-properties clean=1 ka=60 id=616263 user=- pass=- props=- will=1,0,6c617374,627965,180000000a buf=192 -> size Success remaining=33 packet=35 serialize Success bytes=102100044d515454050e003c00000361626305180000000a00046c6173740003627965
+case 16 everything clean=0 ka=30 id=616263 user=75736572 pass=7077 props=1100000e10 will=2,1,6c617374,627965,180000000a buf=192 -> size Success remaining=48 packet=50 serialize Success bytes=103000044d51545405f4001e051100000e10000361626305180000000a00046c617374000362796500047573657200027077
+case 17 buffer-exactly-big-enough clean=1 ka=60 id=616263 user=- pass=- props=- will=- buf=18 -> size Success remaining=16 packet=18 serialize Success bytes=101000044d5154540502003c000003616263
+case 18 buffer-one-byte-short clean=1 ka=60 id=616263 user=- pass=- props=- will=- buf=17 -> size Success remaining=16 packet=18 serialize NoMemory
+case 19 buffer-empty clean=1 ka=60 id=616263 user=- pass=- props=- will=- buf=0 -> size Success remaining=16 packet=18 serialize NoMemory
+big 0 client-id-at-the-16-bit-max which=0 len=65535 -> size Success remaining=65548 packet=65552
+big 1 client-id-one-past-16-bits which=0 len=65536 -> size BadParameter
+big 2 username-at-the-16-bit-max which=1 len=65535 -> size Success remaining=65552 packet=65556
+big 3 username-one-past-16-bits which=1 len=65536 -> size BadParameter
+big 4 password-one-past-16-bits which=2 len=65536 -> size BadParameter
+big 5 will-topic-one-past-16-bits which=3 len=65536 -> size BadParameter
+big 6 will-payload-one-past-16-bits which=4 len=65536 -> size BadParameter
+optional-field-sweep n=32 accepted=32 refused=0 shortest=17 longest=45 digest=c69a7285450e0947
+end
