@@ -1,0 +1,25 @@
+geometry cases=17 contract=4
+case 0 qos0 qos=0 dup=0 ret=0 id=0 topic=612f62 payload=68656c6c6f props=- max=1024 buf=128 -> size Success remaining=11 packet=13 | full Success bytes=300b0003612f620068656c6c6f | hdr Success hsize=8 bytes=300b0003612f6200 | notopic Success hsize=4 bytes=300b0003
+case 1 qos0-empty-payload qos=0 dup=0 ret=0 id=0 topic=612f62 payload=. props=- max=1024 buf=128 -> size Success remaining=6 packet=8 | full Success bytes=30060003612f6200 | hdr Success hsize=8 bytes=30060003612f6200 | notopic Success hsize=4 bytes=30060003
+case 2 qos0-retained qos=0 dup=0 ret=1 id=0 topic=612f62 payload=68656c6c6f props=- max=1024 buf=128 -> size Success remaining=11 packet=13 | full Success bytes=310b0003612f620068656c6c6f | hdr Success hsize=8 bytes=310b0003612f6200 | notopic Success hsize=4 bytes=310b0003
+case 3 qos1 qos=1 dup=0 ret=0 id=42 topic=612f62 payload=68656c6c6f props=- max=1024 buf=128 -> size Success remaining=13 packet=15 | full Success bytes=320d0003612f62002a0068656c6c6f | hdr Success hsize=10 bytes=320d0003612f62002a00 | notopic Success hsize=4 bytes=320d0003
+case 4 qos1-duplicate qos=1 dup=1 ret=0 id=42 topic=612f62 payload=68656c6c6f props=- max=1024 buf=128 -> size Success remaining=13 packet=15 | full Success bytes=3a0d0003612f62002a0068656c6c6f | hdr Success hsize=10 bytes=3a0d0003612f62002a00 | notopic Success hsize=4 bytes=3a0d0003
+case 5 qos2-retained-duplicate qos=2 dup=1 ret=1 id=65535 topic=612f62 payload=68656c6c6f props=- max=1024 buf=128 -> size Success remaining=13 packet=15 | full Success bytes=3d0d0003612f62ffff0068656c6c6f | hdr Success hsize=10 bytes=3d0d0003612f62ffff00 | notopic Success hsize=4 bytes=3d0d0003
+case 6 with-properties qos=1 dup=0 ret=0 id=7 topic=612f62 payload=68656c6c6f props=0101020000 max=1024 buf=128 -> size Success remaining=18 packet=20 | full Success bytes=32120003612f62000705010102000068656c6c6f | hdr Success hsize=15 bytes=32120003612f620007050101020000 | notopic Success hsize=4 bytes=32120003
+case 7 properties-no-payload qos=0 dup=0 ret=0 id=0 topic=612f62 payload=. props=0101 max=1024 buf=128 -> size Success remaining=8 packet=10 | full Success bytes=30080003612f62020101 | hdr Success hsize=10 bytes=30080003612f62020101 | notopic Success hsize=4 bytes=30080003
+case 8 long-payload qos=0 dup=0 ret=0 id=0 topic=612f62 payload=707070707070707070707070707070707070707070707070707070707070 props=- max=1024 buf=128 -> size Success remaining=36 packet=38 | full Success bytes=30240003612f6200707070707070707070707070707070707070707070707070707070707070 | hdr Success hsize=8 bytes=30240003612f6200 | notopic Success hsize=4 bytes=30240003
+case 9 qos1-packet-id-zero qos=1 dup=0 ret=0 id=0 topic=612f62 payload=68656c6c6f props=- max=1024 buf=128 -> size Success remaining=13 packet=15 | full BadParameter | hdr BadParameter | notopic Success hsize=4 bytes=320d0003
+case 10 dup-at-qos0 qos=0 dup=1 ret=0 id=0 topic=612f62 payload=68656c6c6f props=- max=1024 buf=128 -> size Success remaining=11 packet=13 | full BadParameter | hdr BadParameter | notopic Success hsize=4 bytes=380b0003
+case 11 empty-topic qos=0 dup=0 ret=0 id=0 topic=. payload=68656c6c6f props=- max=1024 buf=128 -> size Success remaining=8 packet=10 | full BadParameter | hdr BadParameter | notopic Success hsize=4 bytes=30080000
+case 12 exactly-at-the-maximum qos=0 dup=0 ret=0 id=0 topic=612f62 payload=68656c6c6f props=- max=13 buf=128 -> size Success remaining=11 packet=13 | full Success bytes=300b0003612f620068656c6c6f | hdr Success hsize=8 bytes=300b0003612f6200 | notopic Success hsize=4 bytes=300b0003
+case 13 one-byte-over-the-maximum qos=0 dup=0 ret=0 id=0 topic=612f62 payload=68656c6c6f props=- max=12 buf=128 -> size BadParameter
+case 14 buffer-exactly-big-enough qos=0 dup=0 ret=0 id=0 topic=612f62 payload=68656c6c6f props=- max=1024 buf=13 -> size Success remaining=11 packet=13 | full Success bytes=300b0003612f620068656c6c6f | hdr Success hsize=8 bytes=300b0003612f6200 | notopic Success hsize=4 bytes=300b0003
+case 15 buffer-header-only qos=0 dup=0 ret=0 id=0 topic=612f62 payload=68656c6c6f props=- max=1024 buf=8 -> size Success remaining=11 packet=13 | full NoMemory | hdr Success hsize=8 bytes=300b0003612f6200 | notopic Success hsize=4 bytes=300b0003
+case 16 buffer-empty qos=0 dup=0 ret=0 id=0 topic=612f62 payload=68656c6c6f props=- max=1024 buf=0 -> size Success remaining=11 packet=13 | full NoMemory | hdr NoMemory | notopic Success hsize=4 bytes=300b0003
+contract 0 remaining-length-as-computed rl=11 -> full Success | hdr Success hsize=8 bytes=300b0003612f6200
+contract 1 remaining-length-too-large rl=16 -> full Success | hdr Success hsize=13 bytes=30100003612f6200cccccccccc
+contract 2 remaining-length-too-small rl=8 -> full Success | hdr Success hsize=5 bytes=3008000361
+contract 3 remaining-length-under-the-payload rl=4 -> full Success | hdr BadParameter
+dup-sweep set accepted=16 refused=240 digest=d1164a9f656c2443
+dup-sweep clear accepted=16 refused=240 digest=fcfeabe21849ac43
+end

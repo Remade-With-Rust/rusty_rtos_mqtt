@@ -361,6 +361,44 @@ test pins its operator, which is `>` where
 `>=` — two calculators one function apart in the same C file disagreeing about
 whether 268,435,455 is legal.
 
+## Conformance (2026-09-18) — the outgoing PUBLISH
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **25 / 25** | `cargo test -p rusty_rtos_mqtt-core --test outpublish`, byte for byte. C arm: `oracle/outpublish_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| named cases | **17** | every QoS, DUP and RETAIN, properties with and without a payload, a two-byte remaining length, what each serializer refuses, and the buffer at, below and far below the packet size. |
+| broken-contract cases | **4** | the serializers handed a remaining length that is NOT the one the calculator produced — the only way to tell the header size it REPORTS from the bytes it WRITES. |
+| serializers per case | **3** | all three run on the same inputs and all three results printed, so the trace carries the prefix relationship between them. |
+| dup-patch sweeps | **2 x 256 calls** | `MQTT_UpdateDuplicatePublishFlag` in both directions, compared by count and by an FNV-1a digest of the RESULTING bytes — a function that took the right inputs and set the wrong bit would pass a status-only sweep. |
+| poison rows | **16 introduced, 16 caught** | the QoS bits swapped, DUP and RETAIN swapped, a packet id at QoS 0, a little-endian packet id, the properties before the packet id, the payload copied in the header-only serializer, three size terms dropped, three validations removed, the loose serializer made strict, the header size reported as the bytes written, and the DUP patch on the wrong bit and on any byte. |
+
+**Three serializers, one relationship.** The short one writes four or five
+bytes, the middle one everything but the payload, the long one the lot — and a
+caller on the vectored path depends on the first being a prefix of the second
+and the second of the third. Three separate differentials could each pass while
+that broke, so all three run on every case and the trace carries their outputs
+side by side.
+
+**They validate differently, and the loose one validates almost nothing**: no
+topic, no packet identifier, no DUP rule. It is the one reached for when
+performance matters, and its looseness is the C's choice. One poison is making
+it strict, and it fires.
+
+**An assumption of mine was refuted on the first run of the new cases.** The
+header serializer reports the size it COMPUTED, not the bytes it wrote; I wrote
+that down and added `debug_assert!(written <= header_size)` beside it, reasoning
+that an inflated remaining length could only over-report. It differs in BOTH
+directions — remaining length 16 for an 11-byte packet reports 13 and writes 8;
+remaining length 8 reports 5 and writes 8. No case had broken the C's stated API
+contract ("call the size function first"), so nothing had ever exercised it. The
+assertion is gone. **A comment that states a relationship is a claim, and a
+claim in a comment is one nobody runs.**
+
+**The two halves of the library disagree about an empty topic.** The reading
+side accepts a zero-length topic name with no Topic Alias — a divergence from
+MQTT 5.0 that the C has and this package reproduces — and the writing side
+refuses the same packet. Recorded by a test that fails if either side changes.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -376,7 +414,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 89 passed, 0 failed (43 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect) |
+| `cargo test -p rusty_rtos_mqtt-core` | 96 passed, 0 failed (47 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -397,13 +435,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the incoming PUBLISH | ~466 | **remade and proven** |
 | `core_mqtt_serializer.c`, the DISCONNECT, both directions | ~505 | **remade and proven** |
 | `core_mqtt_serializer.c`, the CONNECT | ~348 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~3,099 | not written |
+| `core_mqtt_serializer.c`, the outgoing PUBLISH | ~584 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~2,515 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **30.1 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **33.8 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

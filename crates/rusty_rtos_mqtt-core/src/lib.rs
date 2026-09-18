@@ -56,6 +56,9 @@ pub mod disconnect;
 /// Building a CONNECT, the packet that starts a session.
 pub mod connect;
 
+/// Building an outgoing PUBLISH: three serializers, one packet.
+pub mod outpublish;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
@@ -75,6 +78,10 @@ pub use header::{
     HeaderError, MAX_REMAINING_LENGTH, PacketHeader, REMAINING_LENGTH_INVALID,
     encode_variable_length, incoming_packet_valid, process_incoming_packet_type_and_length,
     variable_length_encoded_size,
+};
+pub use outpublish::{
+    OutgoingError, OutgoingPublish, PublishSize, publish_packet_size, serialize_publish,
+    serialize_publish_header, serialize_publish_header_without_topic, update_duplicate_flag,
 };
 pub use property::{PropertyError, PropertyReader, decode_variable_length, encode_string};
 pub use publish::{PublishError, PublishInfo, deserialize_publish};

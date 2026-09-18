@@ -130,3 +130,14 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/connect_driver" > "$here/connect.trace"
 echo "wrote $(wc -l < "$here/connect.trace") lines to $here/connect.trace"
+
+# The outgoing-PUBLISH differential's C arm: three serializers that must agree
+# with each other as prefixes.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/outpublish_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/outpublish_driver.c"
+
+"$here/outpublish_driver" > "$here/outpublish.trace"
+echo "wrote $(wc -l < "$here/outpublish.trace") lines to $here/outpublish.trace"

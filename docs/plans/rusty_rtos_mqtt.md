@@ -40,10 +40,11 @@ registers are touched (that is a port crate).
 `core_mqtt_state.c`, whole; out of `core_mqtt_serializer.c` the fixed-header
 codec (~240 lines), the packet-size calculators (~300), the acknowledgement
 deserializers (~586), the CONNACK path (~566), the incoming PUBLISH (~466) and
-the DISCONNECT in both directions (~505) and the CONNECT (~348); and, out of
-`core_mqtt_serializer_private.c`, the property primitives (~309 lines) and the
-fixed-header writers (~180). 30.1 % of the library — **every packet a broker can
-send**, and a session this crate can open and close.
+the DISCONNECT in both directions (~505), the CONNECT (~348) and the outgoing
+PUBLISH (~584); and, out of `core_mqtt_serializer_private.c`, the property
+primitives (~309 lines) and the fixed-header writers (~180). 33.8 % of the
+library — **every packet a broker can send**, and a session this crate can open,
+publish on, and close.
 
 | ours | coreMQTT | note |
 |---|---|---|
@@ -123,10 +124,22 @@ The CONNECT, in `connect`:
 | `CONNECT_HEADER_SIZE` | `MQTT_PACKET_CONNECT_HEADER_SIZE` | ten bytes: the protocol name, the version, the flags and the keep alive |
 | `PROTOCOL_PREAMBLE` | — | the seven bytes every CONNECT starts with, for a caller checking a packet by eye |
 
-**Not built:** the outgoing PUBLISH, SUBSCRIBE and UNSUBSCRIBE bodies (~3,099
-lines of `core_mqtt_serializer.c`), `core_mqtt_prop_*.c` (2,056 for the outgoing
-MQTT 5 property tables) and `core_mqtt.c` (5,618). This crate can open and close
-a session and read everything inside one; it cannot yet publish or subscribe.
+The outgoing PUBLISH, in `outpublish`:
+
+| ours | coreMQTT | note |
+|---|---|---|
+| `publish_packet_size(&OutgoingPublish, max)` | `MQTT_GetPublishPacketSize` + `calculatePublishPacketSize` | checks BEFORE adding, where the CONNECT's adds and checks the total |
+| `serialize_publish(dst, .., packet_id, remaining_length)` | `MQTT_SerializePublish` | the whole packet |
+| `serialize_publish_header(..)` | `MQTT_SerializePublishHeader` | everything but the payload; returns the size it COMPUTED, not the bytes it wrote |
+| `serialize_publish_header_without_topic(..)` | `MQTT_SerializePublishHeaderWithoutTopic` | four or five bytes, and validates almost nothing |
+| `update_duplicate_flag(&mut u8, bool)` | `MQTT_UpdateDuplicatePublishFlag` | patches one bit of a serialized header, for a resend |
+| `OutgoingPublish { qos, dup, retain, topic_name, payload, properties }` | `MQTTPublishInfo_t` plus a prop builder | the payload is a slice in all three, so the C's NULL-with-a-length vectored shape has no equivalent |
+
+**Not built:** the outgoing SUBSCRIBE and UNSUBSCRIBE bodies, the outgoing
+acknowledgements and PINGREQ, the transport reader and the outgoing property
+validators (~2,515 lines of `core_mqtt_serializer.c`), `core_mqtt_prop_*.c`
+(2,056 for the MQTT 5 property builders) and `core_mqtt.c` (5,618). This crate
+can open a session, publish and close it; it cannot yet subscribe.
 
 ## 4. Roadmap
 
@@ -143,7 +156,8 @@ a session and read everything inside one; it cannot yet publish or subscribe.
 | **the incoming PUBLISH** | the last packet a broker can send, and the only one carrying application data | K7 | **54 trace lines, two flag sweeps and six property sweeps agree; the payload arithmetic is pinned by an IDENTITY over 3,000-odd shapes, and two more divergences from MQTT 5.0 came out of it** ✅ |
 | **the DISCONNECT, both directions** | the packet MQTT 5 made bidirectional, and the one the PUBLISH slice's claim had missed | K7 | **58 trace lines, two reason-code sweeps and ten property sweeps agree; comparing the two directions' accepted sets found a server reason code a stock client refuses** ✅ |
 | **the CONNECT** | the packet that starts a session: eight length-prefixed fields, four optional | K7 | **30 trace lines agree BYTE FOR BYTE, plus a 32-combination digest of the whole packet; four ordering poisons caught that a parse-level comparison could not see** ✅ |
-| PUBLISH / SUBSCRIBE / UNSUBSCRIBE | the rest of the wire codec, outgoing | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
+| **the outgoing PUBLISH** | the packet that carries the application's data out, across all THREE of coreMQTT's serializers | K7 | **25 trace lines agree byte for byte; the trace carries the prefix relationship between the three, and four broken-contract cases refuted an assumption of mine on their first run** ✅ |
+| SUBSCRIBE / UNSUBSCRIBE | the rest of the wire codec, outgoing | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
 | MQTT 5 properties | `core_mqtt_prop_*.c` | K7 | the same, over a property corpus |
 | the connection | `core_mqtt.c` over a transport | K7 | a callback-for-callback differential, the shape `rusty_rtos_sntp`'s client established |
 | a real broker | — | K7 | one hour against `rumqttd`, zero lost keep-alives (the family plan's kill test) |
@@ -165,7 +179,8 @@ a session and read everything inside one; it cannot yet publish or subscribe.
 | The packet ids driving this come from the broker, so they are attacker-chosen. | `tests/no_panic.rs` drives 200 x 60 random operations over a four-id space and checks well-formedness after every step: no duplicate id, no occupied record at QoS 0, no empty slot keeping stale fields. |
 | A resend cursor that failed to advance would spin rather than fail. | Asserted, the same way `rusty_rtos_json`'s iterator and `rusty_rtos_sntp`'s retry loops are. |
 | A guard whose effect is invisible in every scenario looks like dead code and gets removed. | Two were found by poisons that did not fire. One (the ack/QoS check) was a WORKLOAD gap and got a scenario; the other (the self-transition guard) is genuinely an optimisation, and a unit test pins why. |
-| **This is 4,706 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **This is 5,290 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **Three serializers share one body and must agree as PREFIXES**, and three separate differentials could each pass while that relationship broke — leaving a caller on the vectored path sending a packet the size calculator never described. | All three run on every case and the trace prints all three outputs, so the nesting is checked from the checked-in file rather than asserted on our side alone. |
 | **A CONNECT's fields are all length-prefixed, so a packet with two of them SWAPPED still parses** — and publishes the will to the wrong topic, or sends the password as the user name. | The differential is byte for byte and the 32-combination sweep digests the WHOLE packet. Four ordering swaps are in the poison set and all four are caught. |
 | **A README claim can outrun the code by one slice.** "Reads every packet a broker can send" was written after the PUBLISH slice and was wrong: MQTT 5's DISCONNECT is bidirectional and was not covered. | The overstatement is RECORDED in the README rather than quietly corrected, and the slice that makes it true says so. A scope claim gets checked against the C's function list, not against what the last slice felt like. |
 | **A PUBLISH's payload length is a four-term subtraction on attacker-chosen numbers**, and a wrap would hand the APPLICATION a length near four billion pointing into a packet of a few bytes. | Three growing remaining-length checks make it unreachable, and a test asserts that the parts RECONSTRUCT the packet rather than merely fitting in it — the weaker assertion was measured to be vacuous. |
@@ -212,3 +227,6 @@ a session and read everything inside one; it cannot yet publish or subscribe.
 | 2026-09-18 | **A limit no input in the corpus can approach is not proven, it is decorative — and the fix is cases built for it, not more ordinary ones.** All five of `MQTT_GetConnectPacketSize`'s 16-bit field checks were unreachable from a table whose longest field was four bytes, so a poison on each of them passed. Seven cases now put one field at a time on 65,535 and 65,536. Same lesson as the packet-size calculators' 268,435,455 boundary, in a slice where it had to be learned again because the limit was four orders of magnitude nearer and still out of reach. |
 | 2026-09-18 | **Where every field is length-prefixed, only a BYTE comparison can see an ordering mistake.** Swapping a CONNECT's will topic with its will payload, or its user name with its password, produces a packet that parses cleanly and means something else entirely. Four such swaps are poisons here and all four are caught by the byte-for-byte trace; a differential that compared parsed fields would have passed every one. |
 | 2026-09-18 | **A slice cannot lie about its length, and that removes a whole class of check.** The C's final remaining-length limit is load-bearing against a property builder that claims 268 million bytes while pointing at eight — the function reads `currentIndex` and never touches `pBuffer`, and the driver reached the exact boundary that way before the cases were withdrawn. A `&[u8]` has no such state to disagree with itself, so the differential CANNOT reach the check and the input class does not exist. Recorded as a property rather than papered over with a case one arm cannot replay. |
+| 2026-09-18 | **A comment that states a relationship is a CLAIM, and a claim in a comment is one nobody runs.** I wrote that `MQTT_SerializePublishHeader` reports the size it computed rather than the bytes it wrote, added `debug_assert!(written <= header_size)` beside it, and was wrong: the two differ in BOTH directions once the caller stops passing what the size function returned. Four cases that break the C's own stated API contract refuted it on their first run. Where a comment asserts a relationship, either test it or do not assert it. |
+| 2026-09-18 | **Where several functions share one body, the differential must run them TOGETHER.** coreMQTT has three outgoing-PUBLISH serializers over one `serializePublishCommon`, and the property a caller depends on is that the short one is a prefix of the middle and the middle of the long. Three separate differentials could each pass while that broke. All three run on every case and the trace carries all three outputs side by side. |
+| 2026-09-18 | **An API contract the corpus always keeps is an API contract nobody has tested.** The C says calling `MQTT_GetPublishPacketSize` before the serializers is "part of the API contract", and every case did — so the header size reported and the bytes written were always equal and a poison swapping them passed. Four cases now break the contract deliberately. **When a comment says callers must do X, add the case where they do not.** |

@@ -6,8 +6,9 @@
 
 A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
 primitives, outgoing-packet writers, packet-size calculators, **every packet a
-broker can send** and the CONNECT that starts a session — ten proven slices of
-the Kairos remake of coreMQTT. MIT OR Apache-2.0.
+broker can send**, the CONNECT that starts a session and the PUBLISH that
+carries data out — eleven proven slices of the Kairos remake of coreMQTT.
+MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
 v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
@@ -55,15 +56,20 @@ lives.
   flags byte that has to agree with which ones are there. Sized and serialized
   in one case, byte for byte, with the ORDERING poisons that a length-prefixed
   format hides best.
+- **Proven**: the outgoing PUBLISH, across all **three** of coreMQTT's
+  serializers — whole packet, header-without-payload, and header-without-topic —
+  with the trace showing that the three agree as prefixes, which no
+  single-function differential can.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The outgoing PUBLISH,
-SUBSCRIBE and UNSUBSCRIBE bodies and PUBLISH's size calculator, the outgoing
-MQTT 5 property tables (`core_mqtt_prop_*.c`, 2,056 lines) and the connection
-state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This crate can
-open and close a session and read everything inside one; it cannot yet publish
-or subscribe.
+**Known gaps, and they are still most of coreMQTT.** The outgoing SUBSCRIBE and
+UNSUBSCRIBE bodies, the outgoing acknowledgements and PINGREQ, the transport
+reader, the outgoing property validators (~2,515 lines of
+`core_mqtt_serializer.c`), the MQTT 5 property builders (`core_mqtt_prop_*.c`,
+2,056 lines) and the connection state machine (`core_mqtt.c`, 5,618 lines) are
+**not written**. This crate can open a session, publish and close it; it cannot
+yet subscribe.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -89,10 +95,11 @@ lines plus a 6,480-call sweep with the property primitives, 51 lines plus a
 calculators, 57 lines plus three 256-value sweeps with the acknowledgement
 deserializers, 54 lines plus six more with the CONNACK, 54 lines plus eight more
 with the incoming PUBLISH, 58 lines plus twelve more with the DISCONNECT in both
-directions, and 30 lines plus a 32-combination whole-packet sweep with the
-CONNECT — all at the pinned v5.0.2. **30.1 % of the library.** 89 tests. **This
-crate reads every packet a broker can send, and can start and end a session**;
-it cannot yet build an outgoing PUBLISH, SUBSCRIBE or UNSUBSCRIBE body.
+directions, 30 lines plus a 32-combination whole-packet sweep with the CONNECT,
+and 25 lines across three serializers with the outgoing PUBLISH — all at the
+pinned v5.0.2. **33.8 % of the library.** 96 tests. **This crate reads every
+packet a broker can send, and can start a session, publish, and end it**; it
+cannot yet subscribe.
 
 ## What it is
 
@@ -807,6 +814,78 @@ of input that makes the check load-bearing does not exist on this side. What is
 left is a caller genuinely holding 268 MB of property bytes — a 64-bit host's
 problem, not a microcontroller's. The check stays, and a test pins its operator,
 which is where it differs from the DISCONNECT's calculator one function away.
+
+## The outgoing PUBLISH
+
+**25 trace lines agree with `core_mqtt_serializer.c`**, byte for byte, across
+**three** serializers.
+
+coreMQTT gives an outgoing PUBLISH three entry points rather than one, because a
+payload can be large and a microcontroller would rather not copy it:
+
+* `serialize_publish` writes the whole packet, payload copied in;
+* `serialize_publish_header` writes everything **but** the payload and reports
+  how far it got, so the caller sends the payload from wherever it already
+  lives;
+* `serialize_publish_header_without_topic` writes less still — the type byte,
+  the remaining length and the topic's two **length** bytes.
+
+### The three must agree as prefixes, and that is in the trace
+
+Each case runs all three and prints all three results, so the short one being a
+prefix of the middle one, and the middle of the long one, is something the
+checked-in trace shows rather than something asserted on our side alone. A
+caller on the vectored path is relying on exactly that, and three separate
+differentials could each pass while the relationship broke.
+
+### They validate differently, and that is the C's choice
+
+| | topic required | packet id at QoS > 0 | DUP at QoS 0 |
+|---|---|---|---|
+| `serialize_publish` | yes | yes | refused |
+| `serialize_publish_header` | yes | yes | refused |
+| `serialize_publish_header_without_topic` | **no** | **no** | **allowed** |
+
+The loose one validates almost nothing, and it is the one reached for when
+performance matters. Transcribed, not tidied — and one of the poisons is making
+it strict.
+
+### The reading and writing halves disagree about an empty topic
+
+`publish` accepts a zero-length topic name with no Topic Alias, which is
+[a divergence from MQTT 5.0](#the-incoming-publish) the C has. This half refuses
+the same packet outright. One library, two directions, two answers — the C's,
+and now recorded by a test that fails if either side changes its mind.
+
+### A `debug_assert` of mine was wrong, and a case refuted it
+
+`MQTT_SerializePublishHeader` reports the size it **computed** from the remaining
+length it was handed, not the bytes it wrote. I wrote that down and added
+`debug_assert!(written <= header_size)` alongside it, reasoning that an inflated
+remaining length would only ever over-report.
+
+It differs in *both* directions:
+
+```
+remaining length 16 for an 11-byte packet -> reports 13, wrote 8
+remaining length  8 for an 11-byte packet -> reports  5, wrote 8
+```
+
+No case broke the C's stated API contract — "call the size function first" — so
+nothing had ever exercised it. Four cases now do, and they refuted the
+assumption on the first run. The assertion is gone; nothing is claimed about the
+relationship, because the C claims nothing.
+
+### Poison-proven on sixteen behaviours, all caught
+
+The QoS bits swapped; DUP and RETAIN swapped; a packet id written at QoS 0; a
+little-endian packet id; the properties written before the packet id; the
+payload copied in the header-only serializer; three terms dropped from the size;
+the three strict validations removed; the loose serializer made strict; the
+header size reported as the bytes written; and the DUP patch on the wrong bit
+and on any byte.
+
+Four needed the broken-contract cases before they would fire.
 
 ## The gate
 
