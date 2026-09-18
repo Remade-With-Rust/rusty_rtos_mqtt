@@ -39,10 +39,11 @@ registers are touched (that is a port crate).
 
 `core_mqtt_state.c`, whole; out of `core_mqtt_serializer.c` the fixed-header
 codec (~240 lines), the packet-size calculators (~300), the acknowledgement
-deserializers (~586), the CONNACK path (~566) and the incoming PUBLISH (~466);
-and, out of `core_mqtt_serializer_private.c`, the property primitives
-(~309 lines) and the fixed-header writers (~180). 24.6 % of the library — and
-**every packet a broker can send**.
+deserializers (~586), the CONNACK path (~566), the incoming PUBLISH (~466) and
+the DISCONNECT in both directions (~505); and, out of
+`core_mqtt_serializer_private.c`, the property primitives (~309 lines) and the
+fixed-header writers (~180). 27.9 % of the library — and **every packet a broker
+can send**, which the previous slice claimed one slice too early.
 
 | ours | coreMQTT | note |
 |---|---|---|
@@ -100,10 +101,21 @@ The incoming PUBLISH, in `publish`:
 | `publish::property` | the eight ids of §3.3.2.3 | including the only VARIABLE-length one in the library |
 | `PropertyReader::variable_length` | the C's inline `decodeVariableLength` in the subscription-id arm | bounded by the buffer as well as the budget |
 
-**Not built:** the OUTGOING packet bodies (~3,952 lines of
+The DISCONNECT, in `disconnect`:
+
+| ours | coreMQTT | note |
+|---|---|---|
+| `deserialize_disconnect(&PacketInfo, max_packet_size)` | `MQTT_DeserializeDisconnect` | |
+| `disconnect_packet_size(reason_code, property_length, max)` | `MQTT_GetDisconnectPacketSize` | |
+| `serialize_disconnect(dst, reason_code, properties, remaining_length)` | `MQTT_SerializeDisconnect` | returns the bytes written |
+| `validate_outgoing_properties(connect_session_expiry, properties)` | `MQTT_ValidateDisconnectProperties` | a DIFFERENT table from the incoming one |
+| `reason_code_allowed(code, incoming)` | `validateDisconnectResponse` | the one function in the library whose answer depends on which way the packet is going |
+| `Disconnect { reason_code, properties }` | `MQTTReasonCodeInfo_t` plus the prop builder | `reason_code` is `Option`, because §3.14.2.1 lets the whole variable header be omitted |
+
+**Not built:** the OUTGOING packet bodies (~3,447 lines of
 `core_mqtt_serializer.c`), `core_mqtt_prop_*.c` (2,056 for the outgoing MQTT 5
-property tables) and `core_mqtt.c` (5,618). This crate can read a session; it
-cannot yet start one.
+property tables) and `core_mqtt.c` (5,618). This crate can read a session and
+end one; it cannot yet start one.
 
 ## 4. Roadmap
 
@@ -118,6 +130,7 @@ cannot yet start one.
 | **acknowledgement deserializers** | every ack a broker can send, except CONNACK | K7 | **57 trace lines plus three 256-value sweeps agree; the sweeps' accepted sets are printed in full, and reading them found three divergences from MQTT 5.0** ✅ |
 | **the CONNACK** | the packet that sets every connection-wide limit | K7 | **54 trace lines plus six 256-value sweeps agree; the reason-code and property tables are exactly MQTT 5.0 §3.2.2.2 and §3.2.2.3, asserted from the trace** ✅ |
 | **the incoming PUBLISH** | the last packet a broker can send, and the only one carrying application data | K7 | **54 trace lines, two flag sweeps and six property sweeps agree; the payload arithmetic is pinned by an IDENTITY over 3,000-odd shapes, and two more divergences from MQTT 5.0 came out of it** ✅ |
+| **the DISCONNECT, both directions** | the packet MQTT 5 made bidirectional, and the one the PUBLISH slice's claim had missed | K7 | **58 trace lines, two reason-code sweeps and ten property sweeps agree; comparing the two directions' accepted sets found a server reason code a stock client refuses** ✅ |
 | CONNECT / PUBLISH / SUBSCRIBE | the rest of the wire codec, outgoing | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
 | MQTT 5 properties | `core_mqtt_prop_*.c` | K7 | the same, over a property corpus |
 | the connection | `core_mqtt.c` over a transport | K7 | a callback-for-callback differential, the shape `rusty_rtos_sntp`'s client established |
@@ -140,7 +153,8 @@ cannot yet start one.
 | The packet ids driving this come from the broker, so they are attacker-chosen. | `tests/no_panic.rs` drives 200 x 60 random operations over a four-id space and checks well-formedness after every step: no duplicate id, no occupied record at QoS 0, no empty slot keeping stale fields. |
 | A resend cursor that failed to advance would spin rather than fail. | Asserted, the same way `rusty_rtos_json`'s iterator and `rusty_rtos_sntp`'s retry loops are. |
 | A guard whose effect is invisible in every scenario looks like dead code and gets removed. | Two were found by poisons that did not fire. One (the ack/QoS check) was a WORKLOAD gap and got a scenario; the other (the self-transition guard) is genuinely an optimisation, and a unit test pins why. |
-| **This is 3,853 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **This is 4,358 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **A README claim can outrun the code by one slice.** "Reads every packet a broker can send" was written after the PUBLISH slice and was wrong: MQTT 5's DISCONNECT is bidirectional and was not covered. | The overstatement is RECORDED in the README rather than quietly corrected, and the slice that makes it true says so. A scope claim gets checked against the C's function list, not against what the last slice felt like. |
 | **A PUBLISH's payload length is a four-term subtraction on attacker-chosen numbers**, and a wrap would hand the APPLICATION a length near four billion pointing into a packet of a few bytes. | Three growing remaining-length checks make it unreachable, and a test asserts that the parts RECONSTRUCT the packet rather than merely fitting in it — the weaker assertion was measured to be vacuous. |
 | A one-byte table sweep looks exhaustive and can discriminate NOTHING, when the byte selects values of different widths. | The CONNACK property identifier is swept five times, once per value shape; the five accepted sets are the table AND say which identifier is which type. A single sweep would have refused 251 of 256 for the wrong reason. |
 | **The ack deserializers take a pointer and a length that an attacker can make disagree**, and that is exactly the input a differential cannot cover — the C would be reading past its own buffer, so its answer depends on memory rather than on the library. | The driver ASSERTS that every case's claim equals its body, so no such line can reach the trace; the over-claim is pinned on the Rust side alone by `a_claim_larger_than_the_buffer_is_refused`. |
@@ -178,3 +192,7 @@ cannot yet start one.
 | 2026-09-18 | **A byte that selects between values of different SHAPES needs one sweep per shape — and so does a byte that changes the shape of the REST of the packet.** The CONNACK needed five property sweeps; the PUBLISH needs six, plus TWO flag sweeps, because QoS decides whether a packet identifier is present and therefore where everything after the topic begins. A single flags sweep would have refused half the nibble for the wrong reason. |
 | 2026-09-18 | **Three checks can be one finding.** All three of `checkPublishRemainingLength`'s calls survived poisoning, and for one reason: each is the same predicate as the bounded slice that follows it. The C needs them because it indexes with a length it was handed; this module reads through `bounded`. Recorded as one entry rather than three, because three entries would have suggested three investigations. |
 | 2026-09-18 | **A mutation that changes no answer is inert, not undetected — but say which.** Emptying the PUBLISH payload's `?` fallback passed every test, and the reason is that the slice can never fail: `payload_at + payload_length` is the remaining length exactly, and the property section's own slice already required that much buffer. That is now a comment at the call site, because "this `?` is unreachable" is a thing a reader will otherwise re-derive or, worse, quietly rely on. |
+| 2026-09-18 | **A scope claim is checked against the ORACLE's function list, not against how complete the last slice felt.** "Reads every packet a broker can send" went into the README after the PUBLISH slice and was wrong by one packet: MQTT 5 made the DISCONNECT bidirectional and `MQTT_DeserializeDisconnect` was not covered. The overstatement is recorded rather than quietly fixed, because a README that overstates once is read sceptically forever — and because the correction is the interesting part. |
+| 2026-09-18 | **Where one table is read with a DIRECTION flag, sweep it once per direction and compare the two sets.** `validateDisconnectResponse` answers differently for the same byte depending on whether the packet is arriving or leaving. Sweeping both and printing both is what made the defect visible: the outgoing set matched MQTT 5.0 §3.14.2.1 exactly, which turned the incoming set's missing `0x9F` from "plausible" into "the only difference". **A correct arm is the best instrument for finding a wrong one.** |
+| 2026-09-18 | **A case that fails for the WRONG reason is worse than no case, because it looks like coverage.** Two poisons survived because the case meant to catch each was malformed a SECOND way — a trailing byte, a short section — so the walk refused it before the check under test could matter. Both were rebuilt to be wrong in exactly one way. When a poison does not fire, check whether the case is over-determined before concluding anything about the code. |
+| 2026-09-18 | **Two sides agreeing on the bytes for DIFFERENT reasons is the fragile kind of agreement, and deserves a test of its own.** A bare DISCONNECT is `E0 01 00`: the byte the writer intends as a property length is read by a broker as the reason code, and they agree only because a property length may be non-zero only when a reason code is present, which forces it to zero. Correct, and one simplification away from not being. |

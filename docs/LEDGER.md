@@ -272,6 +272,53 @@ payload equals the remaining length, over 3,000-odd shapes including claims
 larger than the buffer. Both halves of the test assert their own
 non-vacuity.
 
+## Conformance (2026-09-18) — the DISCONNECT, both directions
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **58 / 58** | `cargo test -p rusty_rtos_mqtt-core --test disconnect`. C arm: `oracle/disconnect_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| named cases | **21 incoming, 14 outgoing, 9 validation** | the outgoing cases run `MQTT_GetDisconnectPacketSize` and then `MQTT_SerializeDisconnect` on its answer and print the BYTES, so the trace carries the size/writer agreement itself rather than leaving it to a test on our side alone. |
+| reason-code sweeps | **2 x 256 calls** | the same table, once per direction. |
+| property sweeps | **10 x 256 calls** | five value shapes x two directions, because the two directions have DIFFERENT property tables and neither contains the other. |
+| statuses reached | **4 of 4** | Success, BadParameter, BadResponse and `MQTTNoMemory` — the last is new to this package and comes from a caller buffer too small for a packet the size calculator already agreed to. |
+| divergences from MQTT 5.0 found | **1** | drafted at `kairos-upstream/drafts/coremqtt-disconnect-reason-code.md`. |
+| poison rows | **15 introduced, 14 caught** | the direction flag, server codes both ways, the missing `0x9F` ADDED, an empty body, a one-byte body, the exact property fit, a session expiry from a server, a repeated reason string, a server reference going out, the session-expiry rule, properties without a reason code, two terms of the size, and the property length written before the reason code. |
+
+**This slice exists because the previous one's claim was wrong.** After the
+PUBLISH slice the README said the crate could read every packet a broker can
+send. It could not: MQTT 5 made the DISCONNECT bidirectional and
+`MQTT_DeserializeDisconnect` was not covered. Recorded rather than quietly
+corrected.
+
+**One table, two directions, and the comparison is the finding.** The outgoing
+accepted set is exactly §3.14.2.1's client column. The incoming set is the
+server column **minus `0x9F`**, "connection rate exceeded" — so a client refuses
+a conformant disconnection as a malformed packet. Second reason-code table in
+this library to be one entry short of the specification, after the UNSUBACK's.
+
+**A bare DISCONNECT is correct by coincidence.** With no reason code the C still
+charges a byte for the encoded property length and emits `E0 01 00`, where
+§3.14.2.1 allows `E0 00`. The byte the writer intends as a property length is
+read by a broker as the reason code; they agree only because a property length
+may be non-zero only when a reason code is present, which forces it to zero.
+Two sides agreeing on the bytes for different reasons is the fragile kind, so it
+has its own test.
+
+**Two poisons needed a case, and both for the same cause: the case meant to
+catch them was malformed a SECOND way.** `repeated-reason-string` carried a
+trailing byte, so the walk refused it before the duplicate check could;
+`property-length-too-short` was malformed inside the section, so the same.
+A case that fails for the wrong reason is worse than no case, because it looks
+like coverage. Both were rebuilt to be wrong in exactly one way.
+
+**The fifteenth is a genuine property.** The up-front buffer check in
+`MQTT_SerializeDisconnect` is the same predicate as the three slices that follow
+it — the C has pointer writes and a `memcpy` where this has bounded slices.
+Fifth appearance of the family, and the first on the WRITING side.
+`the_buffer_check_is_the_slice_bounds_restated` walks every buffer size from
+zero to three past the packet, for four packet shapes, and asserts both that the
+answer matches and that nothing past the reported size was touched.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -287,7 +334,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 71 passed, 0 failed (32 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish) |
+| `cargo test -p rusty_rtos_mqtt-core` | 81 passed, 0 failed (38 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -306,13 +353,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the acknowledgement deserializers | ~586 | **remade and proven** |
 | `core_mqtt_serializer.c`, the CONNACK path | ~566 | **remade and proven** |
 | `core_mqtt_serializer.c`, the incoming PUBLISH | ~466 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~3,952 | not written |
+| `core_mqtt_serializer.c`, the DISCONNECT, both directions | ~505 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~3,447 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **24.6 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **27.9 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

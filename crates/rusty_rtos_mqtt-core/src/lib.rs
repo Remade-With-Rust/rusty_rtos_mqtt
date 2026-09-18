@@ -50,12 +50,19 @@ pub mod connack;
 /// Reading an incoming PUBLISH, the packet that carries application data.
 pub mod publish;
 
+/// The DISCONNECT, which in MQTT 5 travels both ways.
+pub mod disconnect;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
 pub use connack::{
     CONNACK_MINIMUM_SIZE, ClientSettings, ConnAck, ConnAckError, SESSION_PRESENT_MASK,
     ServerSettings, deserialize_connack,
+};
+pub use disconnect::{
+    Disconnect, DisconnectError, DisconnectSize, deserialize_disconnect, disconnect_packet_size,
+    reason_code_allowed, serialize_disconnect, validate_outgoing_properties,
 };
 pub use header::{
     HeaderError, MAX_REMAINING_LENGTH, PacketHeader, REMAINING_LENGTH_INVALID,

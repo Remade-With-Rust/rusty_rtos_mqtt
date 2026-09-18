@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 //! `rusty_rtos_mqtt` — the first slice of coreMQTT, remade in Rust.
 //!
-//! **What is here.** Eight slices, each diffed against the C.
+//! **What is here.** Nine slices, each diffed against the C.
 //!
 //! `core_mqtt_state.c` — the QoS 1 and QoS 2 delivery state machine, in both
 //! directions, across 24 scenarios. The differential compares both record
@@ -48,10 +48,15 @@
 //! parts reconstruct the packet rather than merely fitting inside it. Two more
 //! divergences from MQTT 5.0 came out of it.
 //!
-//! **What is not:** the OUTGOING packet bodies (~3,952 lines plus 2,056 of
+//! The **DISCONNECT, both directions** — the packet MQTT 5 made bidirectional,
+//! and the one the line above claimed too early. One validation table read
+//! twice with different answers, a property table per direction, and a server
+//! reason code a stock client refuses.
+//!
+//! **What is not:** the OUTGOING packet bodies (~3,447 lines plus 2,056 of
 //! outgoing MQTT 5 property tables) and the connection state machine
-//! (`core_mqtt.c`, 5,618 lines). 24.6 % of coreMQTT is remade. This crate can
-//! read a session; it cannot yet start one.
+//! (`core_mqtt.c`, 5,618 lines). 27.9 % of coreMQTT is remade. This crate can
+//! read a session and end one; it cannot yet start one.
 //!
 //! Zero allocation, `no_std`, `forbid(unsafe)`.
 //!

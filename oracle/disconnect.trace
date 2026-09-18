@@ -1,0 +1,58 @@
+geometry incoming=21 outgoing=14 validate=9
+in 0 empty rl=0 max=1024 in=- -> Success rc=- props=-
+in 1 normal-disconnection rl=1 max=1024 in=00 -> Success rc=00 props=-
+in 2 server-shutting-down rl=1 max=1024 in=8b -> Success rc=8b props=-
+in 3 session-taken-over rl=1 max=1024 in=8e -> Success rc=8e props=-
+in 4 will-message-from-server rl=1 max=1024 in=04 -> BadResponse
+in 5 unknown-reason-code rl=1 max=1024 in=7f -> BadResponse
+in 6 no-properties rl=2 max=1024 in=0000 -> Success rc=00 props=-
+in 7 reason-string rl=8 max=1024 in=8b061f0003627965 -> Success rc=8b props=1f0003627965
+in 8 server-reference rl=9 max=1024 in=9c071c0004612e6263 -> Success rc=9c props=1c0004612e6263
+in 9 user-property rl=9 max=1024 in=00072600016b000176 -> Success rc=00 props=2600016b000176
+in 10 two-user-properties rl=16 max=1024 in=000e2600016100016226000163000164 -> Success rc=00 props=2600016100016226000163000164
+in 11 session-expiry-from-server rl=8 max=1024 in=00061100000e1000 -> BadResponse
+in 12 unknown-property rl=4 max=1024 in=00027f00 -> BadResponse
+in 13 repeated-reason-string rl=12 max=1024 in=000a1f000268691f0002796f -> BadResponse
+in 14 property-length-too-long rl=4 max=1024 in=00081f00 -> BadResponse
+in 15 property-length-too-short rl=5 max=1024 in=00021f0000 -> BadResponse
+in 16 property-trailing-byte rl=6 max=1024 in=00031f0000ff -> BadResponse
+in 17 property-length-non-minimal rl=5 max=1024 in=0080001f00 -> BadResponse
+in 18 zero-max-packet-size rl=1 max=0 in=00 -> BadParameter
+in 19 exactly-at-the-maximum rl=1 max=3 in=00 -> Success rc=00 props=-
+in 20 one-byte-over-the-maximum rl=1 max=2 in=00 -> BadResponse
+out 0 bare rc=- proplen=0 max=1024 buf=64 props=- -> size Success remaining=1 packet=3 serialize Success bytes=e00100
+out 1 normal-disconnection rc=00 proplen=0 max=1024 buf=64 props=- -> size Success remaining=2 packet=4 serialize Success bytes=e0020000
+out 2 with-will-message rc=04 proplen=0 max=1024 buf=64 props=- -> size Success remaining=2 packet=4 serialize Success bytes=e0020400
+out 3 server-only-code rc=8b proplen=0 max=1024 buf=64 props=- -> size BadParameter
+out 4 unspecified-error rc=80 proplen=0 max=1024 buf=64 props=- -> size Success remaining=2 packet=4 serialize Success bytes=e0028000
+out 5 unknown-reason-code rc=7f proplen=0 max=1024 buf=64 props=- -> size BadParameter
+out 6 session-expiry rc=00 proplen=5 max=1024 buf=64 props=1100000e10 -> size Success remaining=7 packet=9 serialize Success bytes=e00700051100000e10
+out 7 reason-string rc=80 proplen=6 max=1024 buf=64 props=1f0003627965 -> size Success remaining=8 packet=10 serialize Success bytes=e00880061f0003627965
+out 8 user-property rc=00 proplen=7 max=1024 buf=64 props=2600016b000176 -> size Success remaining=9 packet=11 serialize Success bytes=e00900072600016b000176
+out 9 properties-without-a-reason rc=- proplen=6 max=1024 buf=64 props=1f0003627965 -> size BadParameter
+out 10 zero-max-packet-size rc=00 proplen=0 max=0 buf=64 props=- -> size BadParameter
+out 11 exactly-at-the-maximum rc=00 proplen=0 max=4 buf=64 props=- -> size Success remaining=2 packet=4 serialize Success bytes=e0020000
+out 12 one-byte-over-the-maximum rc=00 proplen=0 max=3 buf=64 props=- -> size BadParameter
+out 13 buffer-too-small rc=80 proplen=6 max=1024 buf=4 props=1f0003627965 -> size Success remaining=8 packet=10 serialize NoMemory
+val 0 empty connexp=3600 props=- -> Success
+val 1 session-expiry connexp=3600 props=1100000e10 -> Success
+val 2 session-expiry-after-zero connexp=0 props=1100000e10 -> BadParameter
+val 3 zero-expiry-after-zero connexp=0 props=1100000000 -> Success
+val 4 reason-string connexp=3600 props=1f0003627965 -> Success
+val 5 user-property connexp=3600 props=2600016b000176 -> Success
+val 6 server-reference connexp=3600 props=1c0003612e62 -> BadParameter
+val 7 unknown-property connexp=3600 props=7f00 -> BadParameter
+val 8 truncated-string connexp=3600 props=1f000978 -> BadResponse
+reason-sweep incoming accepted=00,80,81,82,83,87,89,8b,8c,8d,8e,8f,90,93,94,95,96,97,98,99,9a,9b,9c,9d,9e,a0,a1,a2 n=28 rejected=228
+reason-sweep outgoing accepted=00,04,80,81,82,83,90,93,94,95,96,97,98,99 n=14 rejected=242
+prop-sweep incoming one-byte accepted= n=0 rejected=256
+prop-sweep incoming two-byte accepted= n=0 rejected=256
+prop-sweep incoming four-byte accepted= n=0 rejected=256
+prop-sweep incoming string accepted=1c,1f n=2 rejected=254
+prop-sweep incoming user-property accepted=26 n=1 rejected=255
+prop-sweep outgoing one-byte accepted= n=0 rejected=256
+prop-sweep outgoing two-byte accepted= n=0 rejected=256
+prop-sweep outgoing four-byte accepted=11 n=1 rejected=255
+prop-sweep outgoing string accepted=1f n=1 rejected=255
+prop-sweep outgoing user-property accepted=26 n=1 rejected=255
+end

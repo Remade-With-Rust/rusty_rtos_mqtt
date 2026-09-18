@@ -107,3 +107,14 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/publish_driver" > "$here/publish.trace"
 echo "wrote $(wc -l < "$here/publish.trace") lines to $here/publish.trace"
+
+# The DISCONNECT differential's C arm, BOTH DIRECTIONS: the packet the earlier
+# "every packet a broker can send" claim had missed.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/disconnect_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/disconnect_driver.c"
+
+"$here/disconnect_driver" > "$here/disconnect.trace"
+echo "wrote $(wc -l < "$here/disconnect.trace") lines to $here/disconnect.trace"

@@ -34,3 +34,6 @@ oracle/connack_driver.pdb
 oracle/publish_driver
 oracle/publish_driver.exe
 oracle/publish_driver.pdb
+oracle/disconnect_driver
+oracle/disconnect_driver.exe
+oracle/disconnect_driver.pdb

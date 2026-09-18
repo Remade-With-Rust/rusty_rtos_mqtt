@@ -6,7 +6,7 @@
 
 A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
 primitives, outgoing-packet writers, packet-size calculators and **every packet
-a broker can send** — eight proven slices of the Kairos remake of coreMQTT.
+a broker can send** — nine proven slices of the Kairos remake of coreMQTT.
 MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
@@ -47,6 +47,10 @@ lives.
   data, and the only one whose type byte is partly data. Its payload length is a
   four-term subtraction, and an identity test asserts that the parts reconstruct
   the packet rather than merely fitting inside it.
+- **Proven**: the DISCONNECT, which MQTT 5 made **bidirectional** — one
+  validation table read twice, with different answers, and a property table per
+  direction. Comparing the two accepted sets against the specification found a
+  server reason code a stock client refuses.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
@@ -54,8 +58,8 @@ lives.
 — CONNECT, PUBLISH, SUBSCRIBE and UNSUBSCRIBE past their fixed headers —
 CONNECT's and PUBLISH's size calculators, the outgoing MQTT 5 property tables
 (`core_mqtt_prop_*.c`, 2,056 lines) and the connection state machine
-(`core_mqtt.c`, 5,618 lines) are **not written**. This crate can read a session;
-it cannot yet start one.
+(`core_mqtt.c`, 5,618 lines) are **not written**. This crate can read a session
+and end one; it cannot yet start one.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -74,15 +78,17 @@ flashed" means no chip has run it.
 
 ## Status
 
-**Eight slices built and proven; the rest of coreMQTT is not.** 413 trace lines
+**Nine slices built and proven; the rest of coreMQTT is not.** 413 trace lines
 agree with `core_mqtt_state.c`, 6,291,456 calls with the fixed-header codec, 104
 lines plus a 6,480-call sweep with the property primitives, 51 lines plus a
 1,536-call sweep with the outgoing-packet writers, 53 lines with the packet-size
 calculators, 57 lines plus three 256-value sweeps with the acknowledgement
-deserializers, 54 lines plus six more with the CONNACK, and 54 lines plus eight
-more with the incoming PUBLISH — all at the pinned v5.0.2. **24.6 % of the
-library.** 71 tests. **This crate can read every packet a broker can send**, and
-write any outgoing header; it cannot yet fill in an outgoing packet body.
+deserializers, 54 lines plus six more with the CONNACK, 54 lines plus eight more
+with the incoming PUBLISH, and 58 lines plus twelve more with the DISCONNECT in
+both directions — all at the pinned v5.0.2. **27.9 % of the library.** 81 tests.
+**This crate reads every packet a broker can send** — a claim the README made one
+slice too early and this slice makes true — and writes any outgoing header and
+the whole DISCONNECT; it cannot yet fill in the other outgoing packet bodies.
 
 ## What it is
 
@@ -635,6 +641,80 @@ handed, and every read here goes through a bounded slice instead. Kept for
 fidelity, and the equivalence is pinned. Fourth appearance of a family this
 package keeps meeting, and the first where three checks collapse into one
 reason.
+
+## The DISCONNECT, both directions
+
+**58 trace lines agree with `core_mqtt_serializer.c`**, with two reason-code
+sweeps and ten property sweeps.
+
+### This slice exists because the last one's claim was wrong
+
+After the PUBLISH slice this README said the crate could read every packet a
+broker can send. **It could not.** MQTT 5 made the DISCONNECT bidirectional — a
+broker sends one to say why it is closing the socket — and
+`MQTT_DeserializeDisconnect` was not covered. The claim is recorded here rather
+than quietly corrected, because a README that overstates once will be read
+sceptically forever.
+
+### One table, two directions, different answers
+
+`validateDisconnectResponse` takes an `incoming` flag, and the same byte means
+different things depending on it:
+
+```
+reason-sweep outgoing accepted=00,04,80,81,82,83,90,93,94,95,96,97,98,99  n=14
+reason-sweep incoming accepted=00,80,81,82,83,87,89,8b,8c,8d,8e,8f,90,93,
+                               94,95,96,97,98,99,9a,9b,9c,9d,9e,a0,a1,a2  n=28
+```
+
+`0x04` — "disconnecting, send my Will" — is a client's to send and is refused
+coming in. Fifteen server codes are refused going out. Neither set contains the
+other, so the reason code is swept 256 times in **each** direction.
+
+The property tables differ too: an incoming DISCONNECT may carry a **server
+reference**, an outgoing one a **session expiry interval**, and neither may
+carry the other's.
+
+### A divergence from MQTT 5.0, found by comparing the two sets
+
+The outgoing set is exactly §3.14.2.1's client column. The incoming set is the
+server column **minus `0x9F`, "connection rate exceeded"** — which the
+specification lists and coreMQTT's switch does not. A client that receives it
+answers `MQTTBadResponse`, treating a conformant disconnection as a malformed
+packet.
+
+Transcribed exactly, asserted from the checked-in trace, and written up in
+`kairos-upstream/drafts/` for filing. It is the second reason-code table in this
+library to be one entry short of the specification; the
+[UNSUBACK's](#the-acknowledgement-deserializers) was the first.
+
+### A bare DISCONNECT is right by coincidence
+
+With no reason code and no properties the C still charges a byte for the encoded
+property length, so it emits `E0 01 00` where §3.14.2.1 allows `E0 00`. Both are
+legal — but the byte the writer intends as a *property length* is read by a
+broker as the *reason code*, and they agree only because a property length may
+be non-zero only when a reason code is present, which forces it to `0x00`.
+
+Two sides agreeing on the bytes for different reasons is the fragile kind of
+agreement, so it has its own test.
+
+### Poison-proven on fifteen behaviours, fourteen caught
+
+The direction flag ignored; server codes accepted both ways; **the missing
+`0x9F` added**; an empty body read as a reason code; properties decoded from a
+one-byte body; the exact property fit loosened; a session expiry accepted from a
+server; a repeated reason string allowed; a server reference accepted on the way
+out; the session-expiry rule ignored; properties without a reason code; the
+reason-code byte and the property-length bytes dropped from the size; and the
+property length written before the reason code.
+
+Two needed cases adding, and both for the same reason: the case meant to catch
+them was malformed a **second** way, so it was refused before the check under
+test could matter. The fifteenth is a genuine property — the up-front buffer
+check is the same predicate as the three slices that follow it, because the C
+has pointer writes where this has slices. Fifth appearance of that family, and
+the first on the writing side.
 
 ## The gate
 
