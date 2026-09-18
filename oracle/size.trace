@@ -1,0 +1,53 @@
+geometry acks=14 subs=17
+pingreq -> Success 2
+ack 0 100 0 -> Success remaining=4 size=6
+ack 1 5 0 -> BadParameter
+ack 2 4 0 -> BadParameter
+ack 3 0 0 -> BadParameter
+ack 4 1000 10 -> Success remaining=14 size=16
+ack 5 1000 127 -> Success remaining=131 size=134
+ack 6 1000 128 -> Success remaining=133 size=136
+ack 7 300000 16383 -> Success remaining=16388 size=16392
+ack 8 300000 16384 -> Success remaining=16390 size=16394
+ack 9 300000 2097151 -> BadParameter
+ack 10 300000 2097152 -> BadParameter
+ack 11 4294967295 268435455 -> BadParameter
+ack 12 4294967295 268435456 -> BadParameter
+ack 13 4294967295 268435450 -> BadParameter
+sub 0 one-short-filter prop=0 -> Success remaining=11 size=13
+unsub 0 one-short-filter prop=0 -> Success remaining=10 size=12
+sub 1 three-filters prop=0 -> Success remaining=47 size=49
+unsub 1 three-filters prop=0 -> Success remaining=44 size=46
+sub 2 empty-filter prop=0 -> Success remaining=6 size=8
+unsub 2 empty-filter prop=0 -> Success remaining=5 size=7
+sub 3 max-length-filter prop=0 -> Success remaining=65541 size=65545
+unsub 3 max-length-filter prop=0 -> Success remaining=65540 size=65544
+sub 4 filter-one-past-16-bits prop=0 -> BadParameter
+unsub 4 filter-one-past-16-bits prop=0 -> BadParameter
+sub 5 eight-filters prop=0 -> Success remaining=63 size=65
+unsub 5 eight-filters prop=0 -> Success remaining=55 size=57
+sub 6 subscribe-exactly-at-the-max prop=0 -> Success remaining=11 size=13
+unsub 6 subscribe-exactly-at-the-max prop=0 -> Success remaining=10 size=12
+sub 7 subscribe-one-byte-over prop=0 -> BadParameter
+unsub 7 subscribe-one-byte-over prop=0 -> Success remaining=10 size=12
+sub 8 zero-max-packet-size prop=0 -> BadParameter
+unsub 8 zero-max-packet-size prop=0 -> BadParameter
+sub 9 many-large-filters prop=0 -> Success remaining=524307 size=524311
+unsub 9 many-large-filters prop=0 -> Success remaining=524299 size=524303
+sub 10 properties-just-under-the-limit prop=268435440 -> Success remaining=268435449 size=268435454
+unsub 10 properties-just-under-the-limit prop=268435440 -> Success remaining=268435448 size=268435453
+sub 11 properties-at-the-limit prop=268435455 -> BadParameter
+unsub 11 properties-at-the-limit prop=268435455 -> BadParameter
+sub 12 properties-one-past-the-limit prop=268435456 -> BadParameter
+unsub 12 properties-one-past-the-limit prop=268435456 -> BadParameter
+sub 13 properties-then-one-filter-over prop=268435350 -> BadParameter
+unsub 13 properties-then-one-filter-over prop=268435350 -> BadParameter
+sub 14 properties-then-one-filter-fits prop=268435000 -> Success remaining=268435109 size=268435114
+unsub 14 properties-then-one-filter-fits prop=268435000 -> Success remaining=268435108 size=268435113
+sub 15 in-loop-check-at-exactly-the-invalid-value prop=268435348 -> BadParameter
+unsub 15 in-loop-check-at-exactly-the-invalid-value prop=268435348 -> BadParameter
+sub 16 final-check-at-exactly-the-maximum prop=268435446 -> Success remaining=268435455 size=268435460
+unsub 16 final-check-at-exactly-the-maximum prop=268435446 -> Success remaining=268435454 size=268435459
+sub zero-count -> BadParameter
+unsub zero-count -> BadParameter
+end

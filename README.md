@@ -5,8 +5,8 @@
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
-primitives and outgoing-packet writers — four proven slices of the Kairos
-remake of coreMQTT. MIT OR Apache-2.0.
+primitives, outgoing-packet writers and packet-size calculators — five proven
+slices of the Kairos remake of coreMQTT. MIT OR Apache-2.0.
 
 **K7's fourth library, and the first one too big to remake in one go.** coreMQTT
 v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
@@ -30,14 +30,17 @@ lives.
   byte, with an **exhaustive sweep of the CONNECT flags byte** — the one byte
   that packs six independent decisions and where a wrong bit reads like a
   network fault.
+- **Proven**: the packet-size calculators that feed those writers, including the
+  268,435,455 boundary — reached only by computing the exact values each check
+  lands on, because a case that overshoots cannot tell a `>=` from a `>`.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
 **Known gaps, and they are still most of coreMQTT.** The packet *bodies* — the
-payloads that follow these headers, the size calculators that precede them, and
-the property tables that sit on top of the primitives — and the connection state
-machine (`core_mqtt.c`, 5,618 lines) are **not written**. This crate has the
-pieces; it does not yet put a packet together.
+payloads that follow these headers — CONNECT's and PUBLISH's own size
+calculators, the property tables on top of the primitives, and the connection
+state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This crate has
+the pieces; it does not yet put a packet together.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -56,13 +59,13 @@ flashed" means no chip has run it.
 
 ## Status
 
-**Four slices built and proven; the rest of coreMQTT is not.** 413 trace lines
+**Five slices built and proven; the rest of coreMQTT is not.** 413 trace lines
 agree with `core_mqtt_state.c`, 6,291,456 calls with the fixed-header codec, 104
-lines plus a 6,480-call sweep with the MQTT 5 property primitives, and 51 lines
-plus a 1,536-call sweep with the outgoing-packet writers — all at the pinned
-v5.0.2. **12.4 % of the library.** 32 tests. This crate can recognise a packet
-arriving, read its properties and write any outgoing fixed header; it cannot yet
-assemble a whole packet.
+lines plus a 6,480-call sweep with the property primitives, 51 lines plus a
+1,536-call sweep with the outgoing-packet writers, and 53 lines with the
+packet-size calculators — all at the pinned v5.0.2. **14.3 % of the library.**
+40 tests. This crate can recognise a packet arriving, read its properties, size
+an outgoing one and write its header; it cannot yet fill in the body.
 
 ## What it is
 
@@ -295,6 +298,76 @@ and 2, so `qos << WILL_QOS1` and the two-flag form produce identical bytes. The
 C's two-flag form is kept because it says what the specification says, and a
 unit test pins the adjacency, since moving either constant would part the two
 forms with nothing else failing.
+
+## The packet-size calculators
+
+**53 trace lines agree with `core_mqtt_serializer.c`.**
+
+The writers lay down a fixed header for a remaining length the caller has
+already worked out. This is where that number comes from — and it is the only
+place in the library that does **arithmetic on sizes the application does not
+entirely choose**. A subscription list is the application's, but its topic
+filters often come from a configuration file, a provisioning payload or a
+cloud-side policy, and MQTT 5's limit of 268,435,455 is one a long enough list
+reaches.
+
+**Poison-proven on nine behaviours, seven caught:** the ack's property-length
+term, the ack's two fixed bytes, the subscribe options byte, the two-byte length
+prefix on each topic filter, the packet id, the filter-length upper bound, and
+the final maximum-packet-size check.
+
+### The boundaries had to be computed, not guessed
+
+Three did not fire at first, and the reason was the same for all three: nothing
+in the workload could get near the limit. Eight topic filters of 65,535 bytes
+come to 524,280, and the limit is 268,435,455 — three orders of magnitude away.
+The property length is the only input that can bridge that gap, and the C takes
+it through an `MQTTPropBuilder_t` whose `currentIndex` the caller sets.
+
+Adding property cases *near* the limit was not enough either. Each check lands
+on an **exact** value, and a case that overshoots cannot tell a `>=` from a `>`.
+The two boundary cases are computed: one makes the in-loop check see exactly
+268,435,456, the other makes the final check see exactly 268,435,455.
+
+### One was a workload gap; the other two are properties
+
+The **final limit check** is now caught — it was a real gap, and the cases that
+close it are in the trace. The **in-loop** one still is not, and that turns out
+to be a genuine difference between the two arms:
+
+* in the C the check is **load-bearing**. Its accumulator is a `uint32_t` and
+  its additions wrap, so a long enough list would wrap past zero and come out
+  *under* the limit. Stopping the loop early is what prevents that.
+* here the additions **saturate**, so an overflowing list ends at `u32::MAX`
+  and the final check refuses it anyway.
+
+The check is kept for fidelity, and a test records that removing it would be
+safe *here* and unsafe *there* — a distinction that would otherwise be lost the
+next time someone tidies the function.
+
+The early zero-maximum check is the same shape: the smallest packet these
+calculators can produce is four bytes, so a maximum of zero is refused by the
+final check regardless. Kept because the C has it; pinned so the floor cannot
+drift below four without something failing.
+
+### A refusal hands the caller nothing
+
+The C writes its out-parameters **before** its final maximum-packet-size check,
+so a call that fails on it has still updated them — a caller who ignored the
+status would serialize with a length the library had just refused. A `Result`
+has no error-path value to hand back, so the misuse has no Rust equivalent.
+
+That is the fourth member of a family this package keeps finding: **a
+differential bounds what the C answers, never what it touches, and never what it
+leaves behind.** The trace therefore prints values only on success, and the
+divergence is recorded rather than papered over.
+
+### The two slices are only useful together
+
+A calculator that agreed with the C and a writer that agreed with the C could
+still disagree with **each other** about the same packet, and neither
+differential would notice. A standing test feeds each calculator's answer
+straight into the matching writer and checks the bytes add up.
 
 ## The gate
 

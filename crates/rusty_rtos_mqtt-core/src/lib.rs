@@ -38,12 +38,19 @@ pub mod property;
 /// The fixed header of every outgoing MQTT packet.
 pub mod writer;
 
+/// How big an outgoing packet will be.
+pub mod size;
+
 pub use header::{
     HeaderError, MAX_REMAINING_LENGTH, PacketHeader, REMAINING_LENGTH_INVALID,
     encode_variable_length, incoming_packet_valid, process_incoming_packet_type_and_length,
     variable_length_encoded_size,
 };
 pub use property::{PropertyError, PropertyReader, decode_variable_length, encode_string};
+pub use size::{
+    ListPacket, PINGREQ_PACKET_SIZE, PacketSize, SizeError, ack_packet_size, list_packet_size,
+    subscribe_packet_size, unsubscribe_packet_size,
+};
 pub use state::{
     AckType, Cursor, Operation, PACKET_ID_INVALID, PublishRecords, PublishState, QoS, Record,
     StateError, calculate_state_ack, calculate_state_publish,

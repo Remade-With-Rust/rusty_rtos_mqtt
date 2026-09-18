@@ -37,10 +37,10 @@ registers are touched (that is a port crate).
 
 ## 3. The surface as built
 
-`core_mqtt_state.c`, whole; the fixed-header codec out of
-`core_mqtt_serializer.c` (~240 lines); and, out of `core_mqtt_serializer_private.c`, the
-property primitives (~309 lines) and the fixed-header writers (~180).
-12.4 % of the library.
+`core_mqtt_state.c`, whole; out of `core_mqtt_serializer.c` the fixed-header
+codec (~240 lines) and the packet-size calculators (~300); and, out of
+`core_mqtt_serializer_private.c`, the property primitives (~309 lines) and the
+fixed-header writers (~180). 14.3 % of the library.
 
 | ours | coreMQTT | note |
 |---|---|---|
@@ -55,9 +55,21 @@ property primitives (~309 lines) and the fixed-header writers (~180).
 | `AckType` | `MQTTPubAckType_t` | four values and no fifth, so the C's range check has no equivalent |
 | `StateError` | the `MQTTStatus_t` subset this module returns | |
 
-**Not built:** the rest of `core_mqtt_serializer.c` (~5,870 lines),
+The size calculators, in `size`:
+
+| ours | coreMQTT | note |
+|---|---|---|
+| `ack_packet_size(max, property_length)` | `MQTT_GetAckPacketSize` | |
+| `PINGREQ_PACKET_SIZE` | `MQTT_GetPingreqPacketSize` | a constant, because the C function takes no input that can change its answer and its only failure is a null pointer |
+| `subscribe_packet_size(filters, property_length, max)` | `MQTT_GetSubscribePacketSize` | takes the filter LENGTHS, since a filter's contents cannot change its size |
+| `unsubscribe_packet_size(...)` | `MQTT_GetUnsubscribePacketSize` | |
+| `list_packet_size(kind, ...)` | `calculateSubscriptionPacketSize` | the C's `static` helper, exposed because the two callers differ by one byte per filter and hiding that would duplicate it |
+| `PacketSize { remaining_length, packet_size }` | the two out-parameters | returned together, so a refusal cannot hand back a half-updated pair |
+
+**Not built:** the rest of `core_mqtt_serializer.c` (~5,570 lines),
 `core_mqtt_prop_*.c` (2,056 for MQTT 5 properties) and `core_mqtt.c` (5,618).
-This crate can recognise a packet arriving; it cannot yet build one.
+This crate can recognise a packet arriving, read its properties and size an
+outgoing one; it cannot yet fill in the body.
 
 ## 4. Roadmap
 
@@ -68,6 +80,7 @@ This crate can recognise a packet arriving; it cannot yet build one.
 | **fixed header** | the packet type and the variable-byte remaining length | K7 | **6,291,456 calls agree — every type byte against every length pattern at every claimed length, by per-status counts and an FNV-1a digest** ✅ |
 | **property primitives** | the bounded integer, string and user-property reads | K7 | **104 trace lines plus a 6,480-call sweep agree, comparing the cursor and the budget after every read** ✅ |
 | **fixed-header writers** | the header of every outgoing packet type | K7 | **51 trace lines plus a 1,536-call exhaustive CONNECT-flags sweep agree, byte for byte** ✅ |
+| **packet sizes** | the remaining length and packet size every writer is handed | K7 | **53 trace lines agree, including the 268,435,455 boundary at the exact value each check tests, and the calculators reconcile with the writers** ✅ |
 | CONNECT / PUBLISH / SUBSCRIBE | the rest of the wire codec | K7 | a byte-for-byte differential against `core_mqtt_serializer.c` |
 | MQTT 5 properties | `core_mqtt_prop_*.c` | K7 | the same, over a property corpus |
 | the connection | `core_mqtt.c` over a transport | K7 | a callback-for-callback differential, the shape `rusty_rtos_sntp`'s client established |
@@ -90,7 +103,9 @@ This crate can recognise a packet arriving; it cannot yet build one.
 | The packet ids driving this come from the broker, so they are attacker-chosen. | `tests/no_panic.rs` drives 200 x 60 random operations over a four-id space and checks well-formedness after every step: no duplicate id, no occupied record at QoS 0, no empty slot keeping stale fields. |
 | A resend cursor that failed to advance would spin rather than fail. | Asserted, the same way `rusty_rtos_json`'s iterator and `rusty_rtos_sntp`'s retry loops are. |
 | A guard whose effect is invisible in every scenario looks like dead code and gets removed. | Two were found by poisons that did not fire. One (the ack/QoS check) was a WORKLOAD gap and got a scenario; the other (the self-transition guard) is genuinely an optimisation, and a unit test pins why. |
-| **This is 1,206 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| **This is 2,235 lines of a 21,102-line library.** Claiming "coreMQTT remade" on the strength of it would be false. | The README, the crate description and this plan all name what is not written, in lines. |
+| A size calculator's limit checks sit three orders of magnitude above anything a plausible workload reaches, so they look proven and are not exercised at all. | The property length is the one input that can bridge the gap, and two cases are computed to land on each check EXACTLY. A case that overshoots cannot tell a `>=` from a `>`. |
+| The calculator and the writer could each agree with the C and disagree with **each other** about the same packet, and neither differential would see it. | A standing test feeds each calculator's answer into the matching writer and reconciles the bytes. |
 
 ## 7. Decision log
 
@@ -106,3 +121,7 @@ This crate can recognise a packet arriving; it cannot yet build one.
 | 2026-09-17 | **Provably dead code in the oracle is kept, and pinned.** The property length decoder's in-loop range check cannot fire — the multiplier guard bounds the value to exactly one less than the constant it tests against. A differential arm does not tidy its oracle, so it stays; a unit test pins the arithmetic, because the bound is a relationship between two constants that could move. Third non-firing poison in this package, and the second that was a genuine property rather than a workload gap. |
 | 2026-09-17 | **The header codec makes a guarantee the C cannot.** `MQTT_ProcessIncomingPacketTypeAndLength` takes a pointer and a count and trusts the count, so an `available` larger than the allocation reads past the buffer. Ours uses the count only as an upper bound on a `get`, and a test pins it. Worth recording because it is the first place in K7 where the Rust is not merely equivalent but strictly safer on the same inputs. |
 | 2026-09-17 | **The `current != new` guard in `update_ack` is an optimisation, not behaviour**, and that is now a unit test rather than a coincidence. The record is deleted only on `PublishDone` or `PubRelSend`, and neither is reachable as a **legal** self-transition. The first version of the test missed the word "legal" and failed, which is the useful half of the story: `calculate_state_ack` will compute `PublishDone` for a record already there, and only `validate_transition_ack` stops it. |
+| 2026-09-18 | **A boundary case must land EXACTLY on the comparison.** Property-length cases *near* 268,435,455 left the limit-check poisons still passing, because a case that overshoots a check refuses for the same reason whether the operator is `>=` or `>`. The two that matter are computed backwards from the arithmetic — `prop=268435348` puts the in-loop check at exactly 268,435,456, `prop=268435446` puts the final one at exactly 268,435,455 — and they are named for what they test, so the next reader does not have to re-derive them. |
+| 2026-09-18 | **A check that is load-bearing in the C can be redundant in the transcription, when the arithmetic differs.** The in-loop overflow check guards a `uint32_t` accumulator whose additions WRAP: without it a long enough subscription list wraps past zero and comes out under the limit. Ours SATURATE, so the same list ends at `u32::MAX` and the final check refuses it regardless. The check is kept — a differential arm does not tidy its oracle — and a unit test records that removing it would be safe here and unsafe there, which is the part that would otherwise be lost. Fourth non-firing poison in this package, and the third that was a genuine property. |
+| 2026-09-18 | **A `Result` cannot reproduce a half-written out-parameter, so the trace does not pretend to.** The C writes both out-parameters before its final maximum-packet-size check, so a failed call has still updated them and a caller who ignored the status would serialize with a length the library had just refused. There is no error-path value in a `Result` to hand back, so the driver prints values only on success and the divergence is recorded rather than papered over. This is the same family as the writer's write-past-reported-length and the header's over-large count: **a differential bounds what the C answers, never what it touches, and never what it leaves behind.** |
+| 2026-09-18 | **Two slices that each agree with the C still need a test that they agree with EACH OTHER.** The calculator says how many bytes a packet takes and the writer lays down its header; both differentials could pass while the pair disagreed about the same packet, because neither arm ever sees the other. `the_calculated_size_matches_what_the_writer_lays_down` feeds each calculator's answer straight into the matching writer and reconciles the total. The first cross-slice test in K7, and the shape every later pair of slices should copy. |

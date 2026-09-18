@@ -22,3 +22,6 @@ oracle/property_driver.pdb
 oracle/writer_driver
 oracle/writer_driver.exe
 oracle/writer_driver.pdb
+oracle/size_driver
+oracle/size_driver.exe
+oracle/size_driver.pdb

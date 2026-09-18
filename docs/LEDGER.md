@@ -87,6 +87,48 @@ rather than two flags produces identical bytes, because the two bits are
 adjacent and the legal QoS values are 0, 1 and 2. The C's form is kept and a
 unit test pins the adjacency.
 
+## Conformance (2026-09-18) — the packet-size calculators
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **53 / 53** | `cargo test -p rusty_rtos_mqtt-core --test size`. C arm: `oracle/size_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| named cases | **14 acks, 17 subscribes, 17 unsubscribes, 1 pingreq, 2 empty lists** | each printed with its remaining length and its packet size, so a divergence names itself. |
+| what is compared per case | **the status, and on success BOTH out-parameters** | see the row below on what a `Result` cannot reproduce. |
+| refusal reasons reachable | **5 of 5** | a zero maximum, a property length past the limit, an empty list, a topic filter too long for its 16-bit prefix, and a packet larger than the broker's maximum. Checked directly rather than read off the trace, because the C collapses all five to `MQTTBadParameter`. |
+| poison rows | **9 introduced, 7 caught** | the ack's property-length term, the ack's two fixed bytes, the subscribe options byte, the two-byte length prefix on each filter, the packet id, the filter-length upper bound, and the final maximum-packet-size check. |
+| cross-slice agreement | **8 packets** | each calculator's answer fed straight into the matching [writer](#conformance-2026-09-17--the-fixed-header-writers) and the bytes reconciled. Neither differential alone can catch the two slices agreeing with the C and disagreeing with each other. |
+
+**The three poisons that did not fire all had the same cause, and the fix was
+arithmetic rather than more cases.** Eight topic filters of 65,535 bytes come to
+524,280 and the limit is 268,435,455 — three orders of magnitude away, so
+neither limit check was reachable at all. The property length is the only input
+that can bridge that, and the C takes it through an `MQTTPropBuilder_t` whose
+`currentIndex` the caller sets. Cases *near* the limit were still not enough:
+each check lands on an EXACT value, and a case that overshoots cannot tell a
+`>=` from a `>`. The two boundary cases are computed — `prop=268435348` puts the
+in-loop check at exactly 268,435,456, `prop=268435446` puts the final check at
+exactly 268,435,455.
+
+**One of the three was a real gap; the other two are genuine properties, and one
+of those is an asymmetry between the arms.** The final check is now caught; the
+in-loop one is not, because in the C
+it is LOAD-BEARING (a `uint32_t` accumulator whose additions wrap, so a long
+enough list would wrap past zero and come out under the limit) and here the
+additions SATURATE, so an overflowing list ends at `u32::MAX` and the final
+check refuses it anyway. Kept for fidelity; pinned by
+`the_in_loop_check_is_subsumed_by_saturating_arithmetic`, which records that
+removing it would be safe here and unsafe there. The early zero-maximum check is
+the same shape — the smallest packet is four bytes — and is pinned the same way.
+
+**A refusal hands the caller nothing, and that is a divergence we chose.** The C
+writes both out-parameters BEFORE its final maximum-packet-size check, so a
+failed call has still updated them, and a caller who ignored the status would
+serialize with a length the library had just refused. A `Result` has no error
+path to hand a value back on, so the misuse has no Rust equivalent. The driver
+therefore prints values only on success. Fourth member of the family this
+package keeps finding: **a differential bounds what the C answers, never what it
+touches, and never what it leaves behind.**
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -102,12 +144,12 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 32 passed, 0 failed (6 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer) |
+| `cargo test -p rusty_rtos_mqtt-core` | 40 passed, 0 failed (11 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
 
-## Scope, in lines (2026-09-17)
+## Scope, in lines (2026-09-18)
 
 A count that belongs here because the README's honesty depends on it.
 
@@ -117,13 +159,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the fixed-header codec | ~240 | **remade and proven** |
 | `core_mqtt_serializer_private.c`, the property primitives | ~309 | **remade and proven** |
 | `core_mqtt_serializer_private.c`, the fixed-header writers | ~180 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~5,870 | not written |
+| `core_mqtt_serializer.c`, the packet-size calculators | ~300 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~5,570 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **12.4 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **14.3 % remade** |
 
 No speed number and no size number: nothing here has been benchmarked, and
 nothing has run on a chip.

@@ -64,3 +64,13 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/writer_driver" > "$here/writer.trace"
 echo "wrote $(wc -l < "$here/writer.trace") lines to $here/writer.trace"
+
+# The packet-size differential's C arm.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/size_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/size_driver.c"
+
+"$here/size_driver" > "$here/size.trace"
+echo "wrote $(wc -l < "$here/size.trace") lines to $here/size.trace"
