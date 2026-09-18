@@ -49,3 +49,6 @@ oracle/outbound_driver.pdb
 oracle/reader_driver
 oracle/reader_driver.exe
 oracle/reader_driver.pdb
+oracle/validate_driver
+oracle/validate_driver.exe
+oracle/validate_driver.pdb

@@ -65,6 +65,9 @@ pub mod outbound;
 /// Pulling a packet's header off a transport, one byte at a time.
 pub mod reader;
 
+/// Which property may go in which outgoing packet: six tables, swept.
+pub mod validate;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
@@ -103,6 +106,11 @@ pub use size::{
 pub use state::{
     AckType, Cursor, Operation, PACKET_ID_INVALID, PublishRecords, PublishState, QoS, Record,
     StateError, calculate_state_ack, calculate_state_publish,
+};
+pub use validate::{
+    ConnectValidation, ValidateError, validate_connect_properties, validate_publish_ack_properties,
+    validate_publish_properties, validate_subscribe_properties, validate_unsubscribe_properties,
+    validate_will_properties,
 };
 pub use writer::{
     ConnectInfo, PINGREQ, VERSION_5, WillInfo, serialize_ack_fixed, serialize_connect_fixed_header,

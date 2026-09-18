@@ -1,0 +1,94 @@
+geometry cases=56 validators=6
+case 0 connect-empty v=connect subid=1 alias=10 props=- -> Success rpi=0 maxpkt=2863311530
+case 1 connect-session-expiry v=connect subid=1 alias=10 props=1100000e10 -> Success rpi=0 maxpkt=2863311530
+case 2 connect-receive-max v=connect subid=1 alias=10 props=210014 -> Success rpi=0 maxpkt=2863311530
+case 3 connect-receive-max-zero v=connect subid=1 alias=10 props=210000 -> BadResponse rpi=0 maxpkt=2863311530
+case 4 connect-max-packet-size v=connect subid=1 alias=10 props=2700010000 -> Success rpi=0 maxpkt=65536
+case 5 connect-max-packet-zero v=connect subid=1 alias=10 props=2700000000 -> BadResponse rpi=0 maxpkt=2863311530
+case 6 connect-request-problem-off v=connect subid=1 alias=10 props=1700 -> Success rpi=0 maxpkt=2863311530
+case 7 connect-request-problem-on v=connect subid=1 alias=10 props=1701 -> Success rpi=1 maxpkt=2863311530
+case 8 connect-request-problem-two v=connect subid=1 alias=10 props=1702 -> BadResponse rpi=0 maxpkt=2863311530
+case 9 connect-request-response v=connect subid=1 alias=10 props=1901 -> Success rpi=0 maxpkt=2863311530
+case 10 connect-repeated-session-expiry v=connect subid=1 alias=10 props=1100000e101100000e10 -> BadResponse rpi=0 maxpkt=2863311530
+case 11 connect-auth-method v=connect subid=1 alias=10 props=15000178 -> Success rpi=0 maxpkt=2863311530
+case 12 connect-will-property v=connect subid=1 alias=10 props=180000000a -> BadResponse rpi=0 maxpkt=2863311530
+case 13 connect-auth-data-alone v=connect subid=1 alias=10 props=16000164 -> BadParameter rpi=0 maxpkt=2863311530
+case 14 connect-auth-method-then-data v=connect subid=1 alias=10 props=1500017816000164 -> Success rpi=0 maxpkt=2863311530
+case 15 connect-auth-data-then-method v=connect subid=1 alias=10 props=1600016415000178 -> Success rpi=0 maxpkt=2863311530
+case 16 will-empty v=will subid=1 alias=10 props=- -> Success
+case 17 will-delay v=will subid=1 alias=10 props=180000000a -> Success
+case 18 will-payload-format v=will subid=1 alias=10 props=0101 -> Success
+case 19 will-payload-format-two v=will subid=1 alias=10 props=0102 -> BadResponse
+case 20 will-content-type v=will subid=1 alias=10 props=03000174 -> Success
+case 21 will-session-expiry v=will subid=1 alias=10 props=1100000e10 -> BadResponse
+case 22 will-repeated-delay v=will subid=1 alias=10 props=180000000a180000000a -> BadResponse
+case 23 subscribe-empty v=subscribe subid=1 alias=10 props=- -> Success
+case 24 subscribe-id v=subscribe subid=1 alias=10 props=0b07 -> Success
+case 25 subscribe-id-unavailable v=subscribe subid=0 alias=10 props=0b07 -> BadParameter
+case 26 subscribe-id-zero v=subscribe subid=1 alias=10 props=0b00 -> BadParameter
+case 27 subscribe-user-property v=subscribe subid=1 alias=10 props=2600016b000176 -> Success
+case 28 subscribe-repeated-id v=subscribe subid=1 alias=10 props=0b070b08 -> BadParameter
+case 29 publish-empty v=publish subid=1 alias=10 props=- -> Success alias=43690
+case 30 publish-payload-format v=publish subid=1 alias=10 props=0101 -> Success alias=43690
+case 31 publish-topic-alias v=publish subid=1 alias=10 props=230005 -> Success alias=5
+case 32 publish-topic-alias-over v=publish subid=1 alias=10 props=23000b -> BadParameter alias=11
+case 33 publish-topic-alias-zero v=publish subid=1 alias=10 props=230000 -> Success alias=0
+case 34 publish-alias-when-none-allowed v=publish subid=1 alias=0 props=230001 -> BadParameter alias=1
+case 35 publish-subscription-id v=publish subid=1 alias=10 props=0b07 -> BadParameter alias=43690
+case 36 publish-payload-format-two v=publish subid=1 alias=10 props=0102 -> Success alias=43690
+case 37 publish-repeated-payload-format v=publish subid=1 alias=10 props=01010100 -> Success alias=43690
+case 38 publish-repeated-topic-alias v=publish subid=1 alias=10 props=230005230006 -> BadResponse alias=5
+case 39 puback-empty v=puback subid=1 alias=10 props=- -> Success
+case 40 puback-reason-string v=puback subid=1 alias=10 props=1f000178 -> Success
+case 41 puback-user-property v=puback subid=1 alias=10 props=2600016b000176 -> Success
+case 42 puback-session-expiry v=puback subid=1 alias=10 props=1100000e10 -> BadParameter
+case 43 unsubscribe-empty v=unsubscribe subid=1 alias=10 props=- -> Success
+case 44 unsubscribe-user-property v=unsubscribe subid=1 alias=10 props=2600016b000176 -> Success
+case 45 unsubscribe-reason-string v=unsubscribe subid=1 alias=10 props=1f000178 -> BadParameter
+case 46 unsubscribe-two-user-properties v=unsubscribe subid=1 alias=10 props=2600016100016226000163000164 -> Success
+case 47 connect-truncated-string v=connect subid=1 alias=10 props=15000978 -> BadResponse rpi=0 maxpkt=2863311530
+case 48 puback-truncated-string v=puback subid=1 alias=10 props=1f000978 -> BadResponse
+case 49 publish-repeated-content-type v=publish subid=1 alias=10 props=0300017403000174 -> Success alias=43690
+case 50 publish-repeated-message-expiry v=publish subid=1 alias=10 props=020000000a020000000a -> Success alias=43690
+case 51 will-repeated-payload-format v=will subid=1 alias=10 props=01010100 -> BadResponse
+case 52 puback-repeated-reason-string v=puback subid=1 alias=10 props=1f0001781f000178 -> BadResponse
+case 53 subscribe-truncated-id v=subscribe subid=1 alias=10 props=0bff -> BadResponse
+case 54 publish-truncated-string v=publish subid=1 alias=10 props=03000974 -> BadResponse alias=43690
+case 55 publish-topic-alias-at-max v=publish subid=1 alias=10 props=23000a -> Success alias=10
+sweep connect one-byte accepted=17,19 n=2 refused=254
+sweep connect two-byte accepted=21,22 n=2 refused=254
+sweep connect four-byte accepted=11,27 n=2 refused=254
+sweep connect string accepted=15 n=1 refused=255
+sweep connect varint accepted= n=0 refused=256
+sweep connect user-property accepted=26 n=1 refused=255
+sweep will one-byte accepted=01 n=1 refused=255
+sweep will two-byte accepted= n=0 refused=256
+sweep will four-byte accepted=02,18 n=2 refused=254
+sweep will string accepted=03,08,09 n=3 refused=253
+sweep will varint accepted= n=0 refused=256
+sweep will user-property accepted=26 n=1 refused=255
+sweep subscribe one-byte accepted=0b n=1 refused=255
+sweep subscribe two-byte accepted= n=0 refused=256
+sweep subscribe four-byte accepted= n=0 refused=256
+sweep subscribe string accepted= n=0 refused=256
+sweep subscribe varint accepted=0b n=1 refused=255
+sweep subscribe user-property accepted=26 n=1 refused=255
+sweep publish one-byte accepted=01 n=1 refused=255
+sweep publish two-byte accepted=23 n=1 refused=255
+sweep publish four-byte accepted=02 n=1 refused=255
+sweep publish string accepted=01,03,08,09 n=4 refused=252
+sweep publish varint accepted=01 n=1 refused=255
+sweep publish user-property accepted=02,26 n=2 refused=254
+sweep puback one-byte accepted= n=0 refused=256
+sweep puback two-byte accepted= n=0 refused=256
+sweep puback four-byte accepted= n=0 refused=256
+sweep puback string accepted=1f n=1 refused=255
+sweep puback varint accepted= n=0 refused=256
+sweep puback user-property accepted=26 n=1 refused=255
+sweep unsubscribe one-byte accepted= n=0 refused=256
+sweep unsubscribe two-byte accepted= n=0 refused=256
+sweep unsubscribe four-byte accepted= n=0 refused=256
+sweep unsubscribe string accepted= n=0 refused=256
+sweep unsubscribe varint accepted= n=0 refused=256
+sweep unsubscribe user-property accepted=26 n=1 refused=255
+end

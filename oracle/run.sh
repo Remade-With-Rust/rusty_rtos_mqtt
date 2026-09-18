@@ -163,3 +163,14 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/reader_driver" > "$here/reader.trace"
 echo "wrote $(wc -l < "$here/reader.trace") lines to $here/reader.trace"
+
+# The outgoing-property-validator differential's C arm: six tables, thirty-six
+# sweeps -- the whole map of which property may go in which outgoing packet.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/validate_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/validate_driver.c"
+
+"$here/validate_driver" > "$here/validate.trace"
+echo "wrote $(wc -l < "$here/validate.trace") lines to $here/validate.trace"

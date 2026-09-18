@@ -463,6 +463,62 @@ that. `IncomingHeader::header_length` is therefore an ADDITION: the bytes were
 counted anyway, so the number is free. It is not in the trace, because the C has
 nothing to compare it against.
 
+## Conformance (2026-09-18) — the outgoing property validators
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **94 / 94** | `cargo test -p rusty_rtos_mqtt-core --test validate`. C arm: `oracle/validate_driver.c` driving `core_mqtt_serializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| identifier sweeps | **36** (6 validators x 6 value shapes, 256 identifiers each) | **9,216 calls**, with each accepted set PRINTED rather than hashed — where the accepted set is small, the print says which identifier moved. |
+| named cases | **56** | the repeats, the boundary values, the truncations, and the three [MQTT-3.1.2-32] pairs. |
+| what is compared per case | **the status AND both out-parameters, on refused cases too** | the C writes its Maximum Packet Size and Topic Alias DURING the walk, so a refusal can leave one written. |
+| poison rows | **9 introduced, 9 caught** | the publish table made to dedupe, the topic alias written after its bound is checked, Request Problem Information left at the caller's value, a malformed subscription id given the table's status, the alias bound made inclusive, the zero subscription id accepted, [MQTT-3.1.2-32] checked in the arm, the acknowledgement flag moved inside its loop, and a zero Receive Maximum accepted. |
+
+**Three places the writing side is laxer than the reading side**, all in the
+PUBLISH table: a Topic Alias of **zero** passes, a Payload Format Indicator
+**above 1** passes, and it **deduplicates nothing but the Topic Alias** — its
+`used` flag is declared inside the property loop, so the flag is false at every
+property. The will validator carries five of the same seven identifiers and
+refuses all three; the acknowledgement validator is the same loop one brace
+apart and dedupes. Drafted for upstream.
+
+**A sweep says what a table ACCEPTS; only reading the C says what it
+REMEMBERS.** The driver was written from the sweeps and produced 49 cases, all
+of which passed. Transcribing the C added seven more, and **three of the nine
+poisons are caught only by those seven** — measured by rerunning them against
+the 49-case trace:
+
+| poison | 49 cases | 56 cases |
+|---|---|---|
+| a malformed subscription id given the table's own status | missed | **caught** |
+| the topic alias bound made inclusive | missed | **caught** |
+| the acknowledgement table stops deduplicating | missed | **caught** |
+
+Each spans two properties or two checks — a flag that survives an iteration, a
+boundary, a status passed through from a shared decoder — and a sweep sends one
+property at a time at one value. The sweep is what found the three defects
+above; the two instruments answer different questions, and a slice needs both.
+
+**One identifier no sweep can see.** The CONNECT table accepts nine properties
+and its sweeps report eight: authentication data (`0x16`) is refused at every
+shape because [MQTT-3.1.2-32] needs an authentication method, and the C checks
+that AFTER the walk. Three paired cases carry it.
+
+**The guard, twenty-first shape: six tables that cannot be told apart are ONE
+table with six names.** Every other differential here proves a workload can
+fail. This one must also prove the six workloads differ from each other, since a
+transcription that routed all six validators to one table would answer correctly
+for every case aimed at that one. Each validator's six accepted sets are its
+signature, and `no_two_validators_accept_the_same_set` asserts no two signatures
+are equal.
+
+**And two accumulators rather than return values.** The C writes its Maximum
+Packet Size and Topic Alias through pointers as it walks, so a refusal can leave
+one written — `publish-topic-alias-over` refuses with `alias=11` left behind.
+`ConnectValidation` and the `&mut Option<u16>` are taken by reference for that
+reason, the way `Read::read_to_end` takes its buffer, and the trace compares
+them on refused cases too. A differential compares the state left behind, not
+only the answer.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -478,7 +534,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 113 passed, 0 failed (58 unit, 8 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader) |
+| `cargo test -p rusty_rtos_mqtt-core` | 125 passed, 0 failed (65 unit, 9 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -502,13 +558,14 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the outgoing PUBLISH | ~584 | **remade and proven** |
 | `core_mqtt_serializer.c`, SUBSCRIBE, UNSUBSCRIBE, the acks and PINGREQ | ~604 | **remade and proven** |
 | `core_mqtt_serializer.c`, the transport reader | ~114 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~1,797 | not written |
+| `core_mqtt_serializer.c`, the outgoing property validators | 695 | **remade and proven** |
+| `core_mqtt_serializer.c`, the rest | ~1,102 | not written |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | not written |
 | `core_mqtt_prop_deserializer.c` | 880 | not written |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **38.4 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **42.9 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

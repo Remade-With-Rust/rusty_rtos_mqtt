@@ -373,3 +373,39 @@ fn encoding_a_string_into_any_buffer_is_safe() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// The outgoing-property validators.
+//
+// These read a section the APPLICATION built, not one the broker sent, so they
+// look like the safe direction. Two things make them worth fuzzing anyway: an
+// application that echoes a broker's user properties back into its own packet
+// is handing network bytes to a writer, and the section length is a number the
+// caller supplies and can get wrong.
+
+use rusty_rtos_mqtt_core::validate::{
+    ConnectValidation, validate_connect_properties, validate_publish_ack_properties,
+    validate_publish_properties, validate_subscribe_properties, validate_unsubscribe_properties,
+    validate_will_properties,
+};
+
+/// Arbitrary property sections through all six validators.
+#[test]
+fn arbitrary_outgoing_property_sections_never_panic() {
+    let mut rng = Lcg::new(14);
+
+    for _ in 0..100_000 {
+        let len = rng.below(24) as usize;
+        let bytes: Vec<u8> = (0..len).map(|_| (rng.next() >> 16) as u8).collect();
+
+        let mut found = ConnectValidation::default();
+        let mut alias = None;
+
+        let _ = validate_connect_properties(&bytes, &mut found);
+        let _ = validate_will_properties(&bytes);
+        let _ = validate_subscribe_properties(rng.below(2) == 1, &bytes);
+        let _ = validate_publish_properties((rng.next() >> 16) as u16, &bytes, &mut alias);
+        let _ = validate_publish_ack_properties(&bytes);
+        let _ = validate_unsubscribe_properties(&bytes);
+    }
+}

@@ -63,14 +63,19 @@ lives.
   which complete the **outgoing wire codec**. Sweeping the ack reason codes here
   showed that coreMQTT validates them correctly on the way out and incorrectly
   on the way in: the library disagrees with itself.
+- **Proven**: the six outgoing property validators — which property may go in
+  which packet — swept over all 256 identifiers at six value shapes each. The
+  map is printed rather than hashed, and it found three more places where the
+  writing side allows what the reading side refuses.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and they are still most of coreMQTT.** The outgoing property
-validators and the context helpers (~1,797 lines of `core_mqtt_serializer.c`),
+**Known gaps, and they are still most of coreMQTT.** The context helpers and
+the remaining argument validators (~1,102 lines of `core_mqtt_serializer.c`),
 the MQTT 5 property builders (`core_mqtt_prop_*.c`, 2,056 lines) and the
 connection state machine (`core_mqtt.c`, 5,618 lines) are **not written**. This
-crate can build and read every MQTT packet; it cannot yet run a connection.
+crate can build and read every MQTT packet, and check every property section a
+client may send; it cannot yet run a connection.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -98,11 +103,12 @@ deserializers, 54 lines plus six more with the CONNACK, 54 lines plus eight more
 with the incoming PUBLISH, 58 lines plus twelve more with the DISCONNECT in both
 directions, 30 lines plus a 32-combination whole-packet sweep with the CONNECT,
 25 lines across three serializers with the outgoing PUBLISH, 45 lines with
-SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, and 20 lines comparing
-the transport reader CALL FOR CALL — all at the pinned v5.0.2. **38.4 % of the
-library.** 113 tests. **This crate reads every packet a broker can send, off a
-socket, and writes every packet a client can send** — the whole wire codec; what
-is missing is the connection state machine that drives it.
+SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, 20 lines comparing
+the transport reader CALL FOR CALL, and 94 lines across the six outgoing
+property validators — 36 of them sweeps — all at the pinned v5.0.2. **42.9 % of
+the library.** 125 tests. **This crate reads every packet a broker can send, off
+a socket, and writes every packet a client can send** — the whole wire codec;
+what is missing is the connection state machine that drives it.
 
 ## What it is
 
@@ -1004,6 +1010,83 @@ instance of that same arithmetic in this package, and pinned the same way.
 bytes itself. We counted them anyway, so `IncomingHeader::header_length` is free
 — an **addition**, not a transcription. It is not in the trace, because the C
 has nothing to compare it against, and a unit test pins it instead.
+
+## The outgoing property validators
+
+**94 trace lines agree with `core_mqtt_serializer.c`** — 56 named cases and
+**36 sweeps**, and the sweeps between them are the whole map of which property
+may go in which outgoing packet.
+
+MQTT 5 lets almost every packet carry properties, and a different set for each.
+coreMQTT enforces that with six hand-written tables, each a switch on one byte.
+Six tables is what this package has learned to sweep, so each is swept over all
+256 identifiers at each of six value shapes and the accepted set is **printed**:
+
+```
+sweep connect one-byte accepted=17,19   two-byte accepted=21,22  four-byte accepted=11,27
+sweep will    one-byte accepted=01      four-byte accepted=02,18 string accepted=03,08,09
+sweep publish one-byte accepted=01      two-byte accepted=23     four-byte accepted=02
+sweep puback  string   accepted=1f      user-property accepted=26
+sweep unsubscribe user-property accepted=26      (n=0 at every other shape)
+```
+
+Printing beats hashing wherever the accepted set is small: a hash tells you a
+table changed, and a printed set tells you which identifier moved.
+
+### Three places the writing side is laxer than the reading side
+
+All three are in the PUBLISH table, and in each one the **same library** refuses
+the same thing coming in:
+
+1. **A Topic Alias of zero** passes, where the incoming PUBLISH deserializer
+   refuses it and §3.3.2.3.4 forbids sending one.
+2. **A Payload Format Indicator above 1** passes, where the will validator —
+   which carries five of the same seven identifiers — refuses it, and so does
+   the incoming deserializer (§3.3.2.3.2).
+3. **It deduplicates nothing but the Topic Alias.** Its `used` flag is declared
+   *inside* the property loop, so the flag is false at every property and no
+   repeat is ever seen. The Topic Alias escapes because its own flag is declared
+   *outside* the loop, and the acknowledgement validator — the same loop, one
+   brace apart — dedupes correctly.
+
+Transcribed as they stand, pinned from both directions, and written up in
+`docs/upstream/`.
+
+### A sweep says what a table ACCEPTS; only reading the C says what it REMEMBERS
+
+The driver was written from the sweeps and produced 49 cases, all of which
+passed. Transcribing the C afterwards added seven more, and **three of the nine
+poisons are caught only by those seven** — measured by rerunning them against
+the 49-case trace, not argued:
+
+| poison | 49 cases | 56 cases |
+|---|---|---|
+| a malformed subscription id given the table's own status | missed | **caught** |
+| the topic alias bound made inclusive | missed | **caught** |
+| the acknowledgement table stops deduplicating | missed | **caught** |
+
+Each is about something that spans two properties or two checks — a flag that
+survives an iteration, a boundary, a status passed through from a shared
+decoder. A sweep sends **one property at a time at one value**, so it can see
+none of them. The sweep is still what found the three defects above; the two
+instruments answer different questions.
+
+### One identifier no sweep can see
+
+The CONNECT table accepts nine properties and its sweeps report eight.
+Authentication data (`0x16`) is refused at every shape, because [MQTT-3.1.2-32]
+makes it a protocol error without an authentication method — and the C checks
+that **after** the property walk, so either order is fine and neither is visible
+one property at a time. Three paired cases carry it.
+
+### Poison-proven on nine behaviours, nine caught
+
+The publish table made to dedupe, the topic alias written after its bound is
+checked, Request Problem Information left at the caller's value, a malformed
+subscription id given the table's status instead of the decoder's, the alias
+bound made inclusive, the zero subscription id accepted, [MQTT-3.1.2-32] checked
+in the arm instead of after the walk, the acknowledgement table's flag moved
+inside its loop, and a zero Receive Maximum accepted.
 
 ## The gate
 
