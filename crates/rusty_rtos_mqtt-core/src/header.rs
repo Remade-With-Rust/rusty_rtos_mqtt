@@ -233,20 +233,27 @@ pub fn process_incoming_packet_type_and_length(
         }
 
         // The header byte was read already, so the length bytes start at 1.
-        if available <= bytes_decoded.saturating_add(1) {
+        // The cursor wraps rather than saturates for the same reason as the
+        // accumulate below: the multiplier guard at the top bounds this loop
+        // to four passes, so `bytes_decoded` never leaves 0..=4.
+        if available <= bytes_decoded.wrapping_add(1) {
             return Err(HeaderError::NeedMoreBytes);
         }
 
-        let Some(byte) = buffer.get(bytes_decoded.saturating_add(1)).copied() else {
+        let Some(byte) = buffer.get(bytes_decoded.wrapping_add(1)).copied() else {
             return Err(HeaderError::NeedMoreBytes);
         };
 
         // Four bytes of seven bits cannot exceed 268,435,455, and the
-        // multiplier guard above bounds it to four, so this cannot overflow.
+        // multiplier guard above bounds the run to four -- so these wrap
+        // rather than saturate, over a range where saturation cannot fire.
+        // The guard runs before the read, so `multiplier` is at most
+        // 2,097,152 when it is used here and at most 268,435,456 after, and
+        // `127 * 2,097,152` is 266,338,304. All three stay inside a `u32`.
         remaining_length =
-            remaining_length.saturating_add(u32::from(byte & 0x7F).saturating_mul(multiplier));
-        multiplier = multiplier.saturating_mul(128);
-        bytes_decoded = bytes_decoded.saturating_add(1);
+            remaining_length.wrapping_add(u32::from(byte & 0x7F).wrapping_mul(multiplier));
+        multiplier = multiplier.wrapping_mul(128);
+        bytes_decoded = bytes_decoded.wrapping_add(1);
 
         // The C tests this at the top of a do/while with the byte
         // initialised to zero; testing it here after the assignment is the
@@ -265,6 +272,6 @@ pub fn process_incoming_packet_type_and_length(
     Ok(PacketHeader {
         packet_type,
         remaining_length,
-        header_length: bytes_decoded.saturating_add(1),
+        header_length: bytes_decoded.wrapping_add(1),
     })
 }
