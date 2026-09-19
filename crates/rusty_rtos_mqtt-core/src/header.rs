@@ -165,25 +165,32 @@ pub fn encode_variable_length(destination: &mut [u8], length: u32) -> usize {
 /// receiving one means the peer is confused or hostile.
 #[must_use]
 pub const fn incoming_packet_valid(packet_type: u8) -> bool {
-    match packet_type & 0xF0 {
-        packet::CONNACK
-        | packet::PUBLISH
-        | packet::PUBACK
-        | packet::PUBREC
-        | packet::PUBCOMP
-        | packet::SUBACK
-        | packet::UNSUBACK
-        | packet::PINGRESP
-        | packet::DISCONNECT
-        | packet::AUTH => true,
-
-        // A PUBREL's second bit is reserved and MUST be set, so `0x60` is
-        // malformed where `0x62` is fine. That one bit is the difference
-        // between a valid packet and a protocol violation.
-        packet::PUBREL_NIBBLE => (packet_type & 0x02) != 0,
-
-        _ => false,
+    // A PUBREL's second bit is reserved and MUST be set, so `0x60` is
+    // malformed where `0x62` is fine. That one bit is the difference between a
+    // valid packet and a protocol violation, and it is why this nibble cannot
+    // join the set below.
+    if packet_type & 0xF0 == packet::PUBREL_NIBBLE {
+        return (packet_type & 0x02) != 0;
     }
+
+    // Every remaining arm asked the same question of the same quantity -- is
+    // this high nibble in the set a broker may send -- so the ten-arm match is
+    // set membership over sixteen values, and a `u16` answers it in a shift.
+    const fn bit(type_byte: u8) -> u16 {
+        1u16 << (type_byte >> 4)
+    }
+    const VALID: u16 = bit(packet::CONNACK)
+        | bit(packet::PUBLISH)
+        | bit(packet::PUBACK)
+        | bit(packet::PUBREC)
+        | bit(packet::PUBCOMP)
+        | bit(packet::SUBACK)
+        | bit(packet::UNSUBACK)
+        | bit(packet::PINGRESP)
+        | bit(packet::DISCONNECT)
+        | bit(packet::AUTH);
+
+    (VALID >> (packet_type >> 4)) & 1 == 1
 }
 
 /// `MQTT_ProcessIncomingPacketTypeAndLength`: read a fixed header from a buffer.
