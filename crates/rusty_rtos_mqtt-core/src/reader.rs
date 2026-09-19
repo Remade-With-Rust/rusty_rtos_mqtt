@@ -53,17 +53,35 @@ use crate::header::{
 /// What a transport gave back when asked for one byte.
 ///
 /// The C's `readFunc` returns an `int32_t`: 1 for a byte, 0 for nothing yet,
-/// and anything else for a failure. Those are the only three the reader
+/// and anything else for a failure. Those are the only three the header reader
 /// distinguishes, so they are the three here.
 ///
-/// The C's callback also takes a **length**, and this reader always passes 1 —
-/// so "the transport was asked for more than one byte" has no equivalent in
-/// this trait. It is baked in rather than checked.
+/// This is what [`Transport::recv_one`] answers, and `recv_one` is a **provided
+/// method** over [`Transport::recv`] that asks for exactly one byte — because
+/// that is what the C is. There is one `recv` pointer; the header reader calls
+/// it with a length of 1 and `recvExact` calls it with the rest of the packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Received {
     /// One byte arrived.
     Byte(u8),
     /// Nothing yet. Only at the type byte does this mean "try again later".
+    Nothing,
+    /// The transport failed.
+    Failed,
+}
+
+/// What a transport did with a request for several bytes.
+///
+/// `recvExact` asks for the whole remainder of a packet and takes what it gets,
+/// so unlike the header reader it needs a **count** rather than a byte. Zero is
+/// "nothing yet, and nothing is wrong", which is the answer that starts its
+/// polling timeout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recv {
+    /// This many bytes arrived, at the front of the buffer. May be fewer than
+    /// asked for.
+    Bytes(usize),
+    /// None arrived, and nothing is wrong.
     Nothing,
     /// The transport failed.
     Failed,
@@ -92,8 +110,31 @@ pub enum Sent {
 /// this trait, and `writev` is a PROVIDED METHOD whose default is the fallback
 /// the C reaches for when the pointer is null.
 pub trait Transport {
+    /// Ask for up to `into.len()` bytes, and say how many arrived.
+    ///
+    /// A transport may deliver fewer than it is asked for; delivering MORE is a
+    /// bug in the transport, and the C asserts on it.
+    fn recv(&mut self, into: &mut [u8]) -> Recv;
+
     /// Ask for exactly one byte.
-    fn recv_one(&mut self) -> Received;
+    ///
+    /// The C has **one** receive pointer and the header reader calls it with a
+    /// length of 1, so this is not a second operation — it is [`recv`](Self::recv)
+    /// with a one-byte buffer, and the default says exactly that. A transport
+    /// that wants to answer a single byte specially may override it, and the
+    /// two must then agree.
+    fn recv_one(&mut self) -> Received {
+        let mut byte = [0u8; 1];
+
+        match self.recv(&mut byte) {
+            Recv::Bytes(0) | Recv::Nothing => Received::Nothing,
+            Recv::Bytes(_) => match byte.first() {
+                Some(value) => Received::Byte(*value),
+                None => Received::Nothing,
+            },
+            Recv::Failed => Received::Failed,
+        }
+    }
 
     /// Offer `bytes`, and say how many were taken.
     ///
@@ -292,13 +333,24 @@ mod tests {
             panic!("a reader unit test asked the transport to send");
         }
 
-        fn recv_one(&mut self) -> Received {
+        fn recv(&mut self, into: &mut [u8]) -> Recv {
             self.calls += 1;
             let step = self.steps.get(self.at).copied();
             self.at += 1;
+
             // Running off the end is a failure, not a hang: a reader that asks
             // for more than the script describes should be caught, not fed.
-            step.unwrap_or(Received::Failed)
+            match step.unwrap_or(Received::Failed) {
+                Received::Byte(value) => match into.first_mut() {
+                    Some(slot) => {
+                        *slot = value;
+                        Recv::Bytes(1)
+                    }
+                    None => Recv::Bytes(0),
+                },
+                Received::Nothing => Recv::Nothing,
+                Received::Failed => Recv::Failed,
+            }
         }
     }
 

@@ -629,7 +629,7 @@ fn arbitrary_topic_filters_never_panic() {
 // once each.
 
 use rusty_rtos_mqtt_core::client::{Clock, ConnectionStatus};
-use rusty_rtos_mqtt_core::reader::{Received, Sent, Transport as WireTransport};
+use rusty_rtos_mqtt_core::reader::{Recv, Sent, Transport as WireTransport};
 
 struct Chaos {
     rng: Lcg,
@@ -638,8 +638,8 @@ struct Chaos {
 }
 
 impl WireTransport for Chaos {
-    fn recv_one(&mut self) -> Received {
-        Received::Failed
+    fn recv(&mut self, _into: &mut [u8]) -> Recv {
+        Recv::Failed
     }
 
     fn send(&mut self, bytes: &[u8]) -> Sent {

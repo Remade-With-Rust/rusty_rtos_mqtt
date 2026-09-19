@@ -625,6 +625,46 @@ impl<'a> PublishRecords<'a> {
         }
     }
 
+    /// Empty both arrays.
+    ///
+    /// `handleCleanSession` memsets them, which is this: a fresh session has
+    /// nothing in flight by definition, and anything left over belongs to a
+    /// session the broker has already forgotten.
+    pub fn clear_outgoing(&mut self) {
+        self.outgoing.fill(Record::default());
+    }
+
+    /// The outgoing records, to write to. See
+    /// [`MqttContext::outgoing_mut`](crate::client::MqttContext::outgoing_mut).
+    pub fn outgoing_mut(&mut self) -> &mut [Record] {
+        self.outgoing
+    }
+
+    /// Empty the incoming array.
+    pub fn clear_incoming(&mut self) {
+        self.incoming.fill(Record::default());
+    }
+
+    /// Shrink the arrays to what MQTT 5's Receive Maximum allows.
+    ///
+    /// The C keeps a pointer and a count and lowers the COUNT, leaving the rest
+    /// of the array allocated and unreachable. Here the array IS the count, so
+    /// capping re-slices it. Neither side can raise the other's: a cap only
+    /// ever shrinks.
+    pub fn cap(&mut self, outgoing: usize, incoming: usize) {
+        if outgoing < self.outgoing.len() {
+            let slice = core::mem::take(&mut self.outgoing);
+            let (head, _) = slice.split_at_mut(outgoing);
+            self.outgoing = head;
+        }
+
+        if incoming < self.incoming.len() {
+            let slice = core::mem::take(&mut self.incoming);
+            let (head, _) = slice.split_at_mut(incoming);
+            self.incoming = head;
+        }
+    }
+
     /// `MQTT_PubrelToResend`: the next PUBREL a resumed session owes.
     ///
     /// The C also hands back a state, which is always `MQTTPubRelSend` — there

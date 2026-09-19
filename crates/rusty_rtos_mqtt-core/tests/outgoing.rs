@@ -41,7 +41,7 @@ use rusty_rtos_mqtt_core::client::{
     ClientError, Clock, ConnectionStatus, MqttContext, NoStore, RetainHandling, Store, Subscription,
 };
 use rusty_rtos_mqtt_core::outpublish::OutgoingPublish;
-use rusty_rtos_mqtt_core::reader::{Received, Sent, Transport};
+use rusty_rtos_mqtt_core::reader::{Recv, Sent, Transport};
 use rusty_rtos_mqtt_core::state::{PublishState, QoS, Record};
 
 const TRACE: &str = include_str!("../../../oracle/outgoing.trace");
@@ -76,7 +76,7 @@ impl Script {
 }
 
 impl Transport for Script {
-    fn recv_one(&mut self) -> Received {
+    fn recv(&mut self, _into: &mut [u8]) -> Recv {
         panic!("the outgoing differential asked the transport to receive");
     }
 
@@ -113,8 +113,8 @@ impl Transport for Script {
 struct Gathering(Script);
 
 impl Transport for Gathering {
-    fn recv_one(&mut self) -> Received {
-        self.0.recv_one()
+    fn recv(&mut self, into: &mut [u8]) -> Recv {
+        self.0.recv(into)
     }
 
     fn send(&mut self, bytes: &[u8]) -> Sent {
@@ -174,7 +174,7 @@ struct Keeper {
 }
 
 impl Store for Keeper {
-    fn store(&mut self, _packet_id: u16, parts: &[&[u8]]) -> bool {
+    fn store(&mut self, _packet_id: u32, parts: &[&[u8]]) -> bool {
         self.calls += 1;
 
         // `MQTT_GetBytesInMQTTVec` then `MQTT_SerializeMQTTVec`, which is what
@@ -188,6 +188,13 @@ impl Store for Keeper {
 
         self.answer
     }
+
+    /// The outgoing differential never retrieves; `tests/session.rs` does.
+    fn retrieve(&mut self, _packet_id: u32) -> Option<&[u8]> {
+        None
+    }
+
+    fn clear(&mut self, _packet_id: u32) {}
 }
 
 fn status(result: Result<(), ClientError>) -> &'static str {
@@ -198,6 +205,12 @@ fn status(result: Result<(), ClientError>) -> &'static str {
         Err(ClientError::DisconnectPending) => "StatusDisconnectPending",
         Err(ClientError::SendFailed) => "SendFailed",
         Err(ClientError::PublishStoreFailed) => "PublishStoreFailed",
+        Err(ClientError::RecvFailed) => "RecvFailed",
+        Err(ClientError::BadResponse) => "BadResponse",
+        Err(ClientError::ServerRefused) => "ServerRefused",
+        Err(ClientError::StatusConnected) => "StatusConnected",
+        Err(ClientError::PublishRetrieveFailed) => "PublishRetrieveFailed",
+        Err(ClientError::NoDataAvailable) => "NoDataAvailable",
         Err(ClientError::State(error)) => match error {
             rusty_rtos_mqtt_core::state::StateError::StateCollision => "StateCollision",
             rusty_rtos_mqtt_core::state::StateError::BadParameter => "BadParameter",

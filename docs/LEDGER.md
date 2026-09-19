@@ -895,6 +895,62 @@ cannot complete is not a case.
 write out of bounds reachable by setting `MQTT_SUB_UNSUB_MAX_VECTORS` below 3
 (the guard's `4U - 3U` is unsigned), and the two senders' disagreement above.
 
+## Conformance (2026-09-19) — opening a connection
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **39 / 39** | `cargo test -p rusty_rtos_mqtt-core --test session`. C arm: `oracle/session_driver.c` driving `core_mqtt.c` verbatim from v5.0.2 at `04845c6a`. |
+| what is compared per case | **the status, BOTH call logs, the bytes that went out, the whole connection context, the record array, and the retransmit store's calls AND KEYS** | a CONNACK's job is to set the context, so a status alone would bless a reader that dropped every property in it. |
+| directions scripted | **two** | the send step as in the send slice, and a receive SCRIPT — because one number cannot express a transport that alternates between delivering and not, which is the only shape that can see a polling timeout that resets. |
+| poison rows | **26 introduced, 24 caught** | one is unreachable until the process loop exists, and one is subsumed by the slice bound. |
+
+**The first function that both sends and receives**, and so the first that can
+deadlock, time out, or answer a packet that never came.
+
+**A CONNECT with no properties still carries five.** coreMQTT builds a property
+section containing a single Maximum Packet Size set to the size of the network
+buffer, because "otherwise the server can send a bigger packet which cannot be
+processed by the coreMQTT library". It is on the wire in nearly every line of
+the trace and the application supplied none of it.
+
+**Two timeouts, and only one resets.** The CONNACK's header is retried against
+either a clock or a RETRY COUNT depending on whether the caller passed a
+non-zero timeout, and the count is checked *before* it is incremented, so a
+maximum of zero tries once. The body then goes through `recvExact`, whose
+ten-millisecond timeout restarts on every byte that arrives — so it bounds the
+GAP between bytes, not the packet. `dribbled-body` delivers one byte every nine
+milliseconds and succeeds; one millisecond more and it fails on the first gap.
+
+**A clean session leaks every stored PUBREL.** `handleCleanSession` clears the
+stored PUBLISHes, zeroes the outgoing record array, and then asks
+`MQTT_PubrelToResend` — which reads that array — what PUBRELs to clear.
+`clean-pubrel-only-with-store` has a store wired up, one PUBREL in flight, and
+`clear=0`; the resumed case below it re-sends exactly that record, which is what
+makes the first a defect rather than an empty array. Transcribed, and drafted
+for upstream.
+
+**`session_present` is an out-parameter because the C's really does survive the
+failure.** `MQTT_DeserializeConnAck` fills it in before the clean-session check
+can reject the packet, so a caller that asked for a clean session and got a
+resumed one is handed `MQTTBadResponse` *and* a `true` flag. A
+`Result<bool, _>` would have lost that.
+
+**Two poisons remain, and both are explained.** `recvExact`'s failure branch
+sets the connection to disconnect-pending only when it is already connected —
+which it never is during `MQTT_Connect`, so the branch has no caller yet and the
+process loop is where it will be proven. And refusing a packet larger than the
+network buffer is subsumed by the slice bound: `get_mut(0..257)` on a 256-byte
+buffer is `None` either way. Same family as the property builder's advisory size
+check three slices ago.
+
+**And a dedup that would have been a defect.** `connack::ServerSettings` and
+`context::ServerLimits` have field for field the same nine members, which looks
+exactly like the twenty-second shape of the guard. Merging them was tried and
+reverted: **their zero means different things.** An absent Maximum QoS is 2 in a
+session and 0 in a packet, so assigning one to the other would have capped every
+publish at QoS 0 whenever a broker left the property out. The merge is written
+out instead, field by field, gated on `fields_present`.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -910,7 +966,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 188 passed, 0 failed (96 unit, 15 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client, 3 send, 4 outgoing) |
+| `cargo test -p rusty_rtos_mqtt-core` | 193 passed, 0 failed (97 unit, 15 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client, 3 send, 4 outgoing, 4 session) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -929,9 +985,9 @@ the only place the number comes from; `--check` fails if the list names a
 function the pinned source does not have.
 
 ```
-functions      191 / 218    87.6 %
-function lines 10690 / 13066  81.8 %
-all lines      10690 / 15643  68.3 %   (2577 lines are preamble and cannot be remade)
+functions      203 / 218    93.1 %
+function lines 11739 / 13066  89.8 %
+all lines      11739 / 15643  75.0 %   (2577 lines are preamble and cannot be remade)
 ```
 
 **The headline is the first line.** A function is the unit that can be
@@ -947,14 +1003,13 @@ figure cannot reach 100 % however much is done.
 | `core_mqtt_serializer_private.c` | 15 / 15 |
 | `core_mqtt_prop_serializer.c` | 23 / 23 |
 | `core_mqtt_prop_deserializer.c` | 31 / 31 |
-| `core_mqtt.c` | 35 / 60 |
+| `core_mqtt.c` | 47 / 60 |
 
 The two outstanding in `core_mqtt_serializer.c` are `logConnackResponse` and
 `logAckResponse`: `static void`s of `LogError` calls with no observable
 behaviour. They are counted as not written rather than claimed, because a remake
-that produces no log line has not remade a logger. The 25 outstanding in
-`core_mqtt.c` are the receive loop, the acknowledgement handling and
-`MQTT_Connect`.
+that produces no log line has not remade a logger. The 13 outstanding in
+`core_mqtt.c` are the receive loop and the acknowledgement handling.
 
 **This replaces the earlier figure, which was wrong.** Until 2026-09-18 this
 table divided a hand-maintained sum of per-slice line counts by all 15,643

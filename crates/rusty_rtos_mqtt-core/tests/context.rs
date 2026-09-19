@@ -36,7 +36,7 @@ use rusty_rtos_mqtt_core::context::{
 };
 use rusty_rtos_mqtt_core::header::{HeaderError, process_incoming_packet_type_and_length};
 use rusty_rtos_mqtt_core::outpublish::OutgoingPublish;
-use rusty_rtos_mqtt_core::reader::{ReadError, Received, Sent, Transport, read_header};
+use rusty_rtos_mqtt_core::reader::{ReadError, Recv, Sent, Transport, read_header};
 use rusty_rtos_mqtt_core::state::QoS;
 use rusty_rtos_mqtt_core::validate::{ValidateError, validate_publish_params};
 
@@ -57,15 +57,18 @@ impl Transport for Arrived<'_> {
         panic!("the context differential asked the transport to send");
     }
 
-    fn recv_one(&mut self) -> Received {
+    fn recv(&mut self, into: &mut [u8]) -> Recv {
         self.calls += 1;
 
-        match self.bytes.get(self.at).copied() {
-            Some(byte) => {
+        // This differential drives the header reader, which asks for one byte
+        // at a time; answering one byte per call is what the C's script does.
+        match (self.bytes.get(self.at).copied(), into.first_mut()) {
+            (Some(byte), Some(slot)) => {
                 self.at += 1;
-                Received::Byte(byte)
+                *slot = byte;
+                Recv::Bytes(1)
             }
-            None => Received::Nothing,
+            _ => Recv::Nothing,
         }
     }
 }

@@ -81,6 +81,49 @@ pub enum ClientError {
     /// What the publish-state machine said. `MQTTStateCollision` is the one to
     /// expect: that packet identifier is already in flight.
     State(StateError),
+    /// `MQTTRecvFailed`: the transport failed, or delivered less of a packet
+    /// than its own header said was coming.
+    RecvFailed,
+    /// `MQTTBadResponse`: what arrived was not what the protocol allows there.
+    BadResponse,
+    /// `MQTTServerRefused`: the CONNACK parsed and said no.
+    ServerRefused,
+    /// `MQTTStatusConnected`: there is already a connection.
+    ///
+    /// Not [`NotConnected`](Self::NotConnected) pointed the other way:
+    /// `MQTT_Connect` is the one call that wants the context DISCONNECTED, so
+    /// it is the one call with its own answer for finding it connected.
+    StatusConnected,
+    /// `MQTTPublishRetrieveFailed`: a resumed session needed a packet back out
+    /// of the retransmit store and did not get it.
+    PublishRetrieveFailed,
+    /// `MQTTNoDataAvailable`: nothing had arrived yet.
+    NoDataAvailable,
+}
+
+impl From<crate::reader::ReadError> for ClientError {
+    fn from(error: crate::reader::ReadError) -> Self {
+        match error {
+            crate::reader::ReadError::NoDataAvailable => Self::NoDataAvailable,
+            crate::reader::ReadError::RecvFailed => Self::RecvFailed,
+            crate::reader::ReadError::BadResponse => Self::BadResponse,
+        }
+    }
+}
+
+impl From<crate::connack::ConnAckError> for ClientError {
+    fn from(error: crate::connack::ConnAckError) -> Self {
+        match error {
+            crate::connack::ConnAckError::BadParameter => Self::BadParameter,
+            crate::connack::ConnAckError::BadResponse => Self::BadResponse,
+        }
+    }
+}
+
+impl From<crate::connect::ConnectError> for ClientError {
+    fn from(_: crate::connect::ConnectError) -> Self {
+        Self::BadParameter
+    }
 }
 
 /// `MQTTConnectionStatus_t`.
@@ -115,18 +158,27 @@ pub struct MqttContext<'a> {
     pub properties: ConnectionProperties,
     /// Whether there is a connection.
     pub connect_status: ConnectionStatus,
-    network: &'a mut [u8],
+    pub(crate) network: &'a mut [u8],
     next_packet_id: u16,
-    records: Option<PublishRecords<'a>>,
+    pub(crate) records: Option<PublishRecords<'a>>,
     ack_properties: usize,
     /// When the last byte went out, by the caller's clock.
-    last_packet_tx_time: u32,
+    pub(crate) last_packet_tx_time: u32,
+    /// When the last byte came in.
+    pub(crate) last_packet_rx_time: u32,
     /// When the outstanding PINGREQ was sent.
-    ping_req_send_time: u32,
+    pub(crate) ping_req_send_time: u32,
     /// Whether a PINGRESP is owed.
-    waiting_for_ping_resp: bool,
+    pub(crate) waiting_for_ping_resp: bool,
+    /// The keep alive the session is running under.
+    ///
+    /// Set from the CONNECT and then **overwritten by the CONNACK**: MQTT 5
+    /// lets a broker impose its own, so the client's is a request.
+    pub(crate) keep_alive_seconds: u16,
+    /// Whether anything has gone out since the last keep-alive check.
+    pub(crate) control_packet_sent: bool,
     /// How far into the network buffer the receive path has got.
-    index: usize,
+    pub(crate) index: usize,
 }
 
 impl<'a> MqttContext<'a> {
@@ -151,8 +203,11 @@ impl<'a> MqttContext<'a> {
             records: None,
             ack_properties: 0,
             last_packet_tx_time: 0,
+            last_packet_rx_time: 0,
             ping_req_send_time: 0,
             waiting_for_ping_resp: false,
+            keep_alive_seconds: 0,
+            control_packet_sent: false,
             index: 0,
         }
     }
@@ -167,6 +222,30 @@ impl<'a> MqttContext<'a> {
     #[must_use]
     pub const fn ping_req_send_time(&self) -> u32 {
         self.ping_req_send_time
+    }
+
+    /// When the last byte came in, by the caller's clock.
+    #[must_use]
+    pub const fn last_packet_rx_time(&self) -> u32 {
+        self.last_packet_rx_time
+    }
+
+    /// The keep alive the session is running under, in seconds.
+    #[must_use]
+    pub const fn keep_alive_seconds(&self) -> u16 {
+        self.keep_alive_seconds
+    }
+
+    /// Whether anything has gone out since the last keep-alive check.
+    #[must_use]
+    pub const fn control_packet_sent(&self) -> bool {
+        self.control_packet_sent
+    }
+
+    /// How far into the network buffer the receive path has got.
+    #[must_use]
+    pub const fn index(&self) -> usize {
+        self.index
     }
 
     /// Whether the broker owes a PINGRESP.
@@ -236,6 +315,19 @@ impl<'a> MqttContext<'a> {
             .map_or(&[], |records| records.incoming())
     }
 
+    /// The outgoing records, to write to.
+    ///
+    /// The C's array belongs to the APPLICATION — `MQTT_InitStatefulQoS` is
+    /// handed a pointer and the application keeps one too — so a caller that
+    /// restores a session from its own storage writes into it directly. There
+    /// is nothing hidden here that the C hides.
+    pub fn outgoing_mut(&mut self) -> &mut [Record] {
+        match self.records.as_mut() {
+            Some(records) => records.outgoing_mut(),
+            None => &mut [],
+        }
+    }
+
     /// `MQTT_CancelCallback`: forget an outgoing message before it is answered.
     ///
     /// # Errors
@@ -280,7 +372,7 @@ impl<'a> MqttContext<'a> {
     }
 
     /// The connection-status refusal every send shares.
-    const fn connected(&self) -> Result<(), ClientError> {
+    pub(crate) const fn connected(&self) -> Result<(), ClientError> {
         match self.connect_status {
             ConnectionStatus::Connected => Ok(()),
             ConnectionStatus::NotConnected => Err(ClientError::NotConnected),
@@ -518,7 +610,7 @@ impl<'a> MqttContext<'a> {
     /// different offset — so what it OFFERS on each call is as much of the
     /// behaviour as how many bytes arrive, which is why the differential logs
     /// every call.
-    fn send_buffer<T: Transport, C: Clock>(
+    pub(crate) fn send_buffer<T: Transport, C: Clock>(
         &mut self,
         transport: &mut T,
         clock: &mut C,
@@ -575,7 +667,7 @@ impl<'a> MqttContext<'a> {
     ///
     /// `writev` is not used: this arm takes the per-vector `send` path, which
     /// is the one coreMQTT falls back to and the one the trace drives.
-    fn send_vectors<T: Transport, C: Clock>(
+    pub(crate) fn send_vectors<T: Transport, C: Clock>(
         &mut self,
         transport: &mut T,
         clock: &mut C,
@@ -844,7 +936,27 @@ const _: () = assert!(MAX_VECTORS >= UNSUBSCRIBE_PER_TOPIC);
 pub trait Store {
     /// Keep this packet. Answering `false` fails the publish, and nothing is
     /// sent.
-    fn store(&mut self, packet_id: u16, parts: &[&[u8]]) -> bool;
+    fn store(&mut self, packet_id: u32, parts: &[&[u8]]) -> bool;
+
+    /// Give back a packet kept earlier, flattened.
+    ///
+    /// `MQTTRetrievePacketForRetransmit`, which hands back a pointer and a
+    /// length; here it is the slice those two were. `None` is the C's `false`.
+    fn retrieve(&mut self, packet_id: u32) -> Option<&[u8]>;
+
+    /// Forget a packet. `MQTTClearPacketForRetransmit`.
+    fn clear(&mut self, packet_id: u32);
+}
+
+/// `SET_INCOMING_PUB_FLAG`: an INCOMING publish's key in the same store.
+///
+/// A packet identifier is sixteen bits and the store is keyed on
+/// thirty-two, so bit 16 separates the two directions — an outgoing PUBLISH
+/// waiting for its PUBACK and an incoming one waiting to be PUBRELed can share
+/// a number without sharing a slot.
+#[must_use]
+pub const fn incoming_key(packet_id: u16) -> u32 {
+    (packet_id as u32) | (1 << 16)
 }
 
 /// A [`Store`] that keeps nothing, for a client that does not retransmit.
@@ -857,9 +969,15 @@ pub trait Store {
 pub struct NoStore;
 
 impl Store for NoStore {
-    fn store(&mut self, _packet_id: u16, _parts: &[&[u8]]) -> bool {
+    fn store(&mut self, _packet_id: u32, _parts: &[&[u8]]) -> bool {
         false
     }
+
+    fn retrieve(&mut self, _packet_id: u32) -> Option<&[u8]> {
+        None
+    }
+
+    fn clear(&mut self, _packet_id: u32) {}
 }
 
 /// `MQTT_GetBytesInMQTTVec`: how long the flattened packet would be.
@@ -1361,7 +1479,7 @@ impl<'a> MqttContext<'a> {
                     return Err(ClientError::SendFailed);
                 };
 
-                if !keeper.store(packet_id, view) {
+                if !keeper.store(u32::from(packet_id), view) {
                     return Err(ClientError::PublishStoreFailed);
                 }
             }
@@ -1419,6 +1537,64 @@ mod tests {
             retain_as_published: false,
             retain_handling: RetainHandling::OnSubscribe,
         }
+    }
+
+    /// A zero-length vector is never offered to the transport.
+    ///
+    /// Three poisons across two slices could not be made to fail, and this is
+    /// why all three: the C's `addEncodedStringToVector` leaves out the body of
+    /// an empty string, and a transcription that put it in anyway would be
+    /// **unobservable** through a per-vector transport. The advance is what
+    /// hides it — after any successful send the sender steps over every vector
+    /// the count finished, and `taken < part.len()` is false for a part of
+    /// length zero, so an empty vector is stepped over in the same pass rather
+    /// than offered on the next.
+    ///
+    /// So it is not a workload gap. It is a property of the SENDER, it belongs
+    /// here rather than in a trace, and the one instrument that can see it is a
+    /// gathered `writev`, which is handed the vector COUNT — which is why
+    /// `pub qos0-writev-no-payload` in the outgoing trace is `v3` and not `v4`.
+    #[test]
+    fn a_zero_length_vector_is_never_offered() {
+        struct Watch(Vec<usize>);
+
+        impl Transport for Watch {
+            fn recv(&mut self, _into: &mut [u8]) -> crate::reader::Recv {
+                crate::reader::Recv::Failed
+            }
+
+            fn send(&mut self, bytes: &[u8]) -> Sent {
+                self.0.push(bytes.len());
+                Sent::Bytes(bytes.len())
+            }
+        }
+
+        struct Still;
+
+        impl Clock for Still {
+            fn now_ms(&mut self) -> u32 {
+                0
+            }
+        }
+
+        let mut buffer = [0u8; 16];
+        let mut client = MqttContext::new(&mut buffer);
+        let mut transport = Watch(Vec::new());
+        let mut clock = Still;
+
+        // An empty vector in the middle, and one at the end.
+        let mut vectors: [&[u8]; 4] = [b"ab", b"", b"cde", b""];
+
+        assert_eq!(
+            client.send_vectors(&mut transport, &mut clock, &mut vectors),
+            SendOutcome::Sent(5)
+        );
+
+        assert_eq!(
+            transport.0,
+            vec![2, 3],
+            "an empty vector reached the transport"
+        );
     }
 
     /// Two poisons this slice could not make fail, and the CONSTANT that is

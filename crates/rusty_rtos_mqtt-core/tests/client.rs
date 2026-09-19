@@ -32,7 +32,7 @@ use rusty_rtos_mqtt_core::client::{
     SubscriptionType,
 };
 use rusty_rtos_mqtt_core::outpublish::OutgoingPublish;
-use rusty_rtos_mqtt_core::reader::{Received, Sent, Transport};
+use rusty_rtos_mqtt_core::reader::{Recv, Sent, Transport};
 use rusty_rtos_mqtt_core::state::{QoS, Record};
 
 /// A transport that refuses everything, and a clock that never moves.
@@ -45,8 +45,8 @@ use rusty_rtos_mqtt_core::state::{QoS, Record};
 struct Refuses;
 
 impl Transport for Refuses {
-    fn recv_one(&mut self) -> Received {
-        Received::Failed
+    fn recv(&mut self, _into: &mut [u8]) -> Recv {
+        Recv::Failed
     }
 
     fn send(&mut self, _bytes: &[u8]) -> Sent {
@@ -76,6 +76,12 @@ fn status(result: Result<(), ClientError>) -> &'static str {
         // No case in this trace sends, so this one cannot arise here.
         Err(ClientError::SendFailed) => "SendFailed",
         Err(ClientError::PublishStoreFailed) => "PublishStoreFailed",
+        Err(ClientError::RecvFailed) => "RecvFailed",
+        Err(ClientError::BadResponse) => "BadResponse",
+        Err(ClientError::ServerRefused) => "ServerRefused",
+        Err(ClientError::StatusConnected) => "StatusConnected",
+        Err(ClientError::PublishRetrieveFailed) => "PublishRetrieveFailed",
+        Err(ClientError::NoDataAvailable) => "NoDataAvailable",
         Err(ClientError::State(_)) => "StateError",
     }
 }

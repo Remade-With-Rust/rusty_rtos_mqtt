@@ -261,3 +261,10 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/outgoing_driver" > "$here/outgoing.trace"
 echo "wrote $(wc -l < "$here/outgoing.trace") lines to $here/outgoing.trace"
+
+# The CONNECT/CONNACK differential's C arm: the first function in the library
+# that both sends and receives, so both directions are scripted and both logged.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG    -I "$lib/source/include"    -I "$lib/source/interface"    -o "$here/session_driver"    "$core" "$src" "$ser" "$priv" "$props" "$propd" "$here/session_driver.c"
+
+"$here/session_driver" > "$here/session.trace"
+echo "wrote $(wc -l < "$here/session.trace") lines to $here/session.trace"

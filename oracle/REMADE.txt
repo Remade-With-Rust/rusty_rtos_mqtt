@@ -171,7 +171,19 @@ getPropUint32
 getPropUint8
 getPropUtf8
 
-# --- core_mqtt.c (35 of 60) ---
+# --- core_mqtt.c (47 of 60) ---
+MQTT_Connect
+addStringToVectorChecked
+appendWillVectors
+getAckFromPacketType
+getAckTypeToSend
+handleCleanSession
+handleUncleanSessionResumption
+receiveConnack
+receiveConnackPacket
+recvExact
+sendConnectWithoutCopy
+sendPublishAcks
 MQTT_CancelCallback
 MQTT_GetBytesInMQTTVec
 # Its whole body is four null checks and three function-pointer assignments.

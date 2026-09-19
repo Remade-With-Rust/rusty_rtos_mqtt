@@ -21,7 +21,7 @@
 
 use std::fmt::Write as _;
 
-use rusty_rtos_mqtt_core::reader::{ReadError, Received, Sent, Transport, read_header};
+use rusty_rtos_mqtt_core::reader::{ReadError, Received, Recv, Sent, Transport, read_header};
 
 const TRACE: &str = include_str!("../../../oracle/reader.trace");
 
@@ -52,29 +52,33 @@ impl Transport for Script {
         panic!("the reader differential asked the transport to send");
     }
 
-    fn recv_one(&mut self) -> Received {
+    fn recv(&mut self, into: &mut [u8]) -> Recv {
         self.calls += 1;
         let step = self.steps.get(self.at).copied();
         self.at += 1;
 
         match step {
-            Some(Received::Byte(byte)) => {
-                self.log.push(format!("{byte:02x}"));
-                Received::Byte(byte)
-            }
+            Some(Received::Byte(byte)) => match into.first_mut() {
+                Some(slot) => {
+                    self.log.push(format!("{byte:02x}"));
+                    *slot = byte;
+                    Recv::Bytes(1)
+                }
+                None => Recv::Nothing,
+            },
             Some(Received::Nothing) => {
                 self.log.push("none".to_owned());
-                Received::Nothing
+                Recv::Nothing
             }
             Some(Received::Failed) => {
                 self.log.push("err".to_owned());
-                Received::Failed
+                Recv::Failed
             }
             // The script ran out: the reader asked for more than the case
             // described, which the C driver reports the same way.
             None => {
                 self.log.push("OVERRUN".to_owned());
-                Received::Failed
+                Recv::Failed
             }
         }
     }

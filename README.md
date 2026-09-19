@@ -93,11 +93,14 @@ lives.
   copying the caller's buffers, over both a per-vector transport and a
   **gathered `writev`** — where a packet turns out to be several gathers, and
   the stored copy of a publish differs from the sent one by one bit.
+- **Proven**: `MQTT_Connect` end to end — the CONNECT, the wait for a CONNACK
+  with both of its timeouts, what the CONNACK does to every limit in the
+  context, and what a clean or resumed session owes the retransmit store.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps: 27 functions, all but two of them in `core_mqtt.c`.** What is
-left is the receive loop, the acknowledgement handling and `MQTT_Connect` — and
+**Known gaps: 15 functions, all but two of them in `core_mqtt.c`.** What is
+left is the receive loop and the acknowledgement handling — and
 `core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
 does not have. Everything else is remade: this crate can build and read every
 MQTT packet, off a socket or out of a buffer, and assemble, check and walk back
@@ -134,9 +137,10 @@ the transport reader CALL FOR CALL, 94 lines across the six outgoing property
 validators — 36 of them sweeps — 56 lines finishing that file, which run the
 library's TWO header readers side by side, 73 lines across the MQTT 5 property
 builders, 55 across the property reader, 109 across topic matching and 41
-across the client context, 29 across the send plumbing and 59 across the
-outgoing packets — all at the pinned v5.0.2. **191 of coreMQTT's 218 functions,
-87.6 %**, counted by `oracle/coverage.py` from the pinned source. 188 tests. **This crate reads every packet a broker can send, off a socket or
+across the client context, 29 across the send plumbing, 59 across the outgoing
+packets and 39 across opening a connection — all at the pinned v5.0.2. **203 of
+coreMQTT's 218 functions, 93.1 %**, counted by `oracle/coverage.py` from the
+pinned source. 193 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1525,6 +1529,45 @@ loop again, the second compares with `>=` and reads it every turn including
 after a failure. This crate had given both the second shape. Two new trace cases
 — one that lands elapsed time exactly on the timeout in the *vector* sender, and
 a `reads=` column — now separate them, and four poisons hold them apart.
+
+## Opening a connection
+
+**39 trace lines agree with `core_mqtt.c`** — `MQTT_Connect`, the CONNACK it
+waits for, and what a resumed session owes the broker. This is the first
+function in the library that both **sends and receives**, so both directions are
+scripted and both are logged.
+
+### Five bytes the application never asked for
+
+A CONNECT with no properties of its own does not go out with an empty property
+section. coreMQTT builds one containing a single Maximum Packet Size set to the
+**size of the network buffer**, on the grounds that otherwise a server could
+send a packet the library cannot read:
+
+```
+101400044d515454 05 02 003c  05 27 00000100  0002 6331
+                             ^^^^^^^^^^^^^^  the caller supplied none of this
+```
+
+### Two timeouts, and only one of them resets
+
+The CONNACK's header is read one byte at a time by a loop that gives up either
+on a **clock** or on a **retry count** — whichever, depends on whether the
+caller passed a non-zero timeout. The body is read by `recvExact`, whose own
+ten-millisecond timeout **restarts every time a byte arrives**, so it bounds the
+gap between bytes and not the packet. `dribbled-body` delivers one byte every
+nine milliseconds and never times out; `dribbled-on-the-boundary` moves the
+clock one millisecond more and fails on the first gap.
+
+### A clean session leaks every stored PUBREL
+
+`handleCleanSession` clears the stored PUBLISHes, zeroes the outgoing record
+array, and *then* asks `MQTT_PubrelToResend` — which reads that array — what
+PUBRELs to clear. The answer is always none.
+`clean-pubrel-only-with-store` has a store, a PUBREL in flight and `clear=0`;
+the resumed case beneath it re-sends exactly that record, which is what makes
+the first a defect rather than an empty array. Reproduced, and drafted for
+upstream.
 
 ## The gate
 

@@ -73,3 +73,6 @@ oracle/send_driver.pdb
 oracle/outgoing_driver
 oracle/outgoing_driver.exe
 oracle/outgoing_driver.pdb
+oracle/session_driver
+oracle/session_driver.exe
+oracle/session_driver.pdb

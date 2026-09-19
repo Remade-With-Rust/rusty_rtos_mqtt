@@ -30,7 +30,7 @@
 use std::fmt::Write as _;
 
 use rusty_rtos_mqtt_core::client::{ClientError, Clock, ConnectionStatus, MqttContext};
-use rusty_rtos_mqtt_core::reader::{Received, Sent, Transport};
+use rusty_rtos_mqtt_core::reader::{Recv, Sent, Transport};
 
 const TRACE: &str = include_str!("../../../oracle/send.trace");
 
@@ -56,7 +56,7 @@ impl Script {
 }
 
 impl Transport for Script {
-    fn recv_one(&mut self) -> Received {
+    fn recv(&mut self, _into: &mut [u8]) -> Recv {
         panic!("the send differential asked the transport to receive");
     }
 
@@ -117,6 +117,12 @@ fn status(result: Result<(), ClientError>) -> &'static str {
         Err(ClientError::DisconnectPending) => "StatusDisconnectPending",
         Err(ClientError::SendFailed) => "SendFailed",
         Err(ClientError::PublishStoreFailed) => "PublishStoreFailed",
+        Err(ClientError::RecvFailed) => "RecvFailed",
+        Err(ClientError::BadResponse) => "BadResponse",
+        Err(ClientError::ServerRefused) => "ServerRefused",
+        Err(ClientError::StatusConnected) => "StatusConnected",
+        Err(ClientError::PublishRetrieveFailed) => "PublishRetrieveFailed",
+        Err(ClientError::NoDataAvailable) => "NoDataAvailable",
         Err(ClientError::State(_)) => "StateError",
     }
 }

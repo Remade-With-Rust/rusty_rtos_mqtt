@@ -83,6 +83,9 @@ pub mod topic;
 /// The client context, and what it refuses before it sends anything.
 pub mod client;
 
+/// Opening a connection: CONNECT, CONNACK and what a resumed session owes.
+pub mod session;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
