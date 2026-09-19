@@ -7,16 +7,12 @@
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 A `no_std` MQTT 5 client: the publish state machine, the whole wire codec in
-both directions, the connection, the receive loop and the acknowledgements —
-**all 218 of coreMQTT v5.0.2's 218 functions**, counted from the pinned source by
-[a checked-in script](https://github.com/Remade-With-Rust/rusty_rtos_mqtt/blob/main/oracle/coverage.py). MIT OR Apache-2.0.
+both directions, the connection, the receive loop and the acknowledgements.
+**All 218 of coreMQTT v5.0.2's 218 functions**, counted from the pinned source
+by [a checked-in script](https://github.com/Remade-With-Rust/rusty_rtos_mqtt/blob/main/oracle/coverage.py).
 
-**K7's fourth library, and the first one too big to remake in one go** — so it
-was remade in twenty-four proven slices, each one diffed against the C.
-coreMQTT v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
-nothing but its own header — no bytes, no transport, no clock — so it is a
-complete, provable unit on its own, and it is where MQTT's hardest correctness
-lives.
+Too big to remake in one go, so it was remade in twenty-four slices, each one
+diffed against the C.
 
 - **Proven**: the QoS 1 and QoS 2 delivery state machine, in both directions,
   diffed against the C **operation for operation** across 24 scenarios as a
