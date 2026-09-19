@@ -559,3 +559,61 @@ fn walking_any_property_section_never_leaves_it() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// The client's subscription validators.
+//
+// A topic filter is application data, but a SHARED one has structure the
+// validator walks -- a prefix, a share name, a separator -- and an index
+// computed wrong there reads somebody else's memory in C. Here it cannot, and
+// this asserts the weaker thing a fuzz gate can: it never panics, and it never
+// disagrees with itself.
+
+use rusty_rtos_mqtt_core::client::{MqttContext, RetainHandling, Subscription, SubscriptionType};
+
+/// Arbitrary topic filters through the subscription validators.
+#[test]
+fn arbitrary_topic_filters_never_panic() {
+    let mut rng = Lcg::new(19);
+    let alphabet = *b"$share/abc#+";
+
+    for _ in 0..200_000 {
+        let len = rng.below(16) as usize;
+        let filter: Vec<u8> = (0..len)
+            .map(|_| alphabet[rng.below(alphabet.len() as u32) as usize])
+            .collect();
+
+        let mut buffer = [0u8; 32];
+        let mut client = MqttContext::new(&mut buffer);
+        client.enable_qos(4, 4, 0);
+        client.properties.server.wildcard_available = (rng.below(2)) as u8;
+        client.properties.server.shared_available = (rng.below(2)) as u8;
+
+        let entry = Subscription {
+            topic_filter: &filter,
+            qos: QoS::AtMostOnce,
+            no_local: rng.below(2) == 1,
+            retain_as_published: false,
+            retain_handling: RetainHandling::OnSubscribe,
+        };
+
+        let subscribe = client.validate_subscriptions(&[entry], 1, SubscriptionType::Subscribe);
+        let unsubscribe = client.validate_subscriptions(&[entry], 1, SubscriptionType::Unsubscribe);
+
+        // An UNSUBSCRIBE checks strictly less, so it can never refuse what a
+        // SUBSCRIBE accepts.
+        if subscribe.is_ok() {
+            assert!(
+                unsubscribe.is_ok(),
+                "unsubscribe refused a filter subscribe accepted: {:?}",
+                String::from_utf8_lossy(&filter)
+            );
+        }
+
+        // And the verdict must not depend on how many times it is asked.
+        assert_eq!(
+            subscribe,
+            client.validate_subscriptions(&[entry], 1, SubscriptionType::Subscribe)
+        );
+    }
+}

@@ -80,10 +80,17 @@ pub mod cursor;
 /// Does this topic name match that topic filter?
 pub mod topic;
 
+/// The client context, and what it refuses before it sends anything.
+pub mod client;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
 pub use builder::{BuilderError, PropertyBuilder, allowed_properties};
+pub use client::{
+    ClientError, ConnectionStatus, MqttContext, RetainHandling as SubscribeRetainHandling,
+    Subscription as ClientSubscription, SubscriptionType,
+};
 pub use connack::{
     CONNACK_MINIMUM_SIZE, ClientSettings, ConnAck, ConnAckError, SESSION_PRESENT_MASK,
     ServerSettings, deserialize_connack,

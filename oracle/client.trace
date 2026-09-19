@@ -1,0 +1,41 @@
+geometry
+init Success connect=0 nextid=1 recvmax=65535 maxpkt=268435460 rpi=1 smaxqos=2 retain=1 keepalive=65535 outrecords=0 inrecords=0 ackprops=0
+stateful both-lists out=1/4 in=1/4 props=0/0 inited=1 -> Success outmax=4 inmax=4 ackbuf=0
+stateful neither-list out=0/0 in=0/0 props=0/0 inited=1 -> Success outmax=0 inmax=0 ackbuf=0
+stateful with-ack-props out=1/4 in=1/4 props=1/32 inited=1 -> Success outmax=4 inmax=4 ackbuf=32
+stateful ack-props-zero-length out=1/4 in=1/4 props=1/0 inited=1 -> Success outmax=4 inmax=4 ackbuf=0
+connectstatus not-connected -> StatusNotConnected
+connectstatus connected -> StatusConnected
+connectstatus disconnect-pending -> StatusDisconnectPending
+packetid from-start 1 2 3 4 next=5
+packetid at-the-wrap 65534 65535 1 2 next=3
+sub plain which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=plain:0:0:0 -> StatusNotConnected
+sub unsubscribe-plain which=unsubscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=plain:0:0:0 -> StatusNotConnected
+sub zero-packet-id which=subscribe n=1 id=0 stateful=1 wildcard=1 shared=1 shapes=plain:0:0:0 -> BadParameter
+sub empty-filter which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=empty:0:0:0 -> BadParameter
+sub qos1-without-records which=subscribe n=1 id=1 stateful=0 wildcard=1 shared=1 shapes=plain:1:0:0 -> BadParameter
+sub qos1-with-records which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=plain:1:0:0 -> StatusNotConnected
+sub wildcard-allowed which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=wild:0:0:0 -> StatusNotConnected
+sub wildcard-forbidden which=subscribe n=1 id=1 stateful=1 wildcard=0 shared=1 shapes=wild:0:0:0 -> BadParameter
+sub wildcard-past-the-length which=subscribe n=1 id=1 stateful=1 wildcard=0 shared=1 shapes=hidden-wild:0:0:0 -> BadParameter
+sub shared which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=shared:0:0:0 -> StatusNotConnected
+sub shared-forbidden which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=0 shapes=shared:0:0:0 -> BadParameter
+sub shared-with-no-local which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=shared:0:0:1 -> BadParameter
+sub shared-empty-name which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=shared-no-name:0:0:0 -> BadParameter
+sub shared-no-topic which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=shared-no-topic:0:0:0 -> BadParameter
+sub shared-wildcard-in-name which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=shared-wild-name:0:0:0 -> BadParameter
+sub share-prefix-exactly which=subscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=share-prefix:0:0:0 -> StatusNotConnected
+sub unsubscribe-shared-no-name which=unsubscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=shared-no-name:0:0:0 -> StatusNotConnected
+sub unsubscribe-shared-no-local which=unsubscribe n=1 id=1 stateful=1 wildcard=1 shared=1 shapes=shared:0:0:1 -> StatusNotConnected
+sub bad-then-good which=subscribe n=2 id=1 stateful=1 wildcard=1 shared=1 shapes=empty:0:0:0,plain:0:0:0 -> StatusNotConnected
+sub good-then-bad which=subscribe n=2 id=1 stateful=1 wildcard=1 shared=1 shapes=plain:0:0:0,empty:0:0:0 -> BadParameter
+sub qos1-then-qos0-without-records which=subscribe n=2 id=1 stateful=0 wildcard=1 shared=1 shapes=plain:1:0:0,plain:0:0:0 -> BadParameter
+pub qos0 qos=0 id=0 payload=1/5 topiclen=3 stateful=1 -> StatusNotConnected
+pub qos1-with-id qos=1 id=1 payload=1/5 topiclen=3 stateful=1 -> StatusNotConnected
+pub qos1-zero-id qos=1 id=0 payload=1/5 topiclen=3 stateful=1 -> BadParameter
+pub qos1-without-records qos=1 id=1 payload=1/5 topiclen=3 stateful=0 -> BadParameter
+pub payload-without-pointer qos=0 id=0 payload=0/5 topiclen=3 stateful=1 -> BadParameter
+pub no-payload-at-all qos=0 id=0 payload=0/0 topiclen=3 stateful=1 -> StatusNotConnected
+pub huge-topic qos=0 id=0 payload=1/5 topiclen=65536 stateful=1 -> BadParameter
+pub zero-topic qos=0 id=0 payload=1/5 topiclen=0 stateful=1 -> BadParameter
+end

@@ -225,3 +225,15 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/topic_driver" > "$here/topic.trace"
 echo "wrote $(wc -l < "$here/topic.trace") lines to $here/topic.trace"
+
+# The client-context differential's C arm: the last of `core_mqtt.c` that needs
+# no transport -- the constructors, the packet-id allocator, the vector helpers
+# and the subscribe/publish validators.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/client_driver" \
+   "$core" "$src" "$ser" "$priv" "$props" "$propd" "$here/client_driver.c"
+
+"$here/client_driver" > "$here/client.trace"
+echo "wrote $(wc -l < "$here/client.trace") lines to $here/client.trace"

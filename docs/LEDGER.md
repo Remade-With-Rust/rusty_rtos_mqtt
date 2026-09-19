@@ -735,6 +735,50 @@ to length four. So the shortcut is what its name says — an optimisation, not a
 rule — which is worth knowing, because it looks at first like the only reason a
 filter containing a literal `+` can match at all.
 
+## Conformance (2026-09-18) — the client context
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **40 / 41, and 1 refused on purpose** | `cargo test -p rusty_rtos_mqtt-core --test client`. C arm: `oracle/client_driver.c` driving `core_mqtt.c` verbatim from v5.0.2 at `04845c6a`. |
+| named cases | **21 subscription, 8 publish, plus the constructors** | `MQTT_Subscribe` validates before it looks at the connection, so an unconnected context tells a malformed list (`BadParameter`) from a well-formed one (`StatusNotConnected`). |
+| poison rows | **15 introduced, 15 caught** | two needed cases added first; both gaps had real behaviour behind them. |
+
+**Only the last entry in a subscription list decides whether the list is
+valid.** `validateSubscribeUnsubscribeParams` ends in a loop that assigns its
+status and never breaks, so every earlier entry's verdict is written over — and
+the loop three lines above it, over the same list, does break. The same two
+subscriptions in both orders give opposite answers. Everything the per-entry
+validator checks is lost this way, so the client builds and sends a SUBSCRIBE
+carrying a filter like `$share//a/b`.
+
+**And `checkWildcardSubscriptions` searches a filter past its length**, with
+`strchr`, where every other function that touches a topic filter uses
+`topicFilterLength`. Second thing in this library the Rust arm cannot
+reproduce, for the same reason as the first: a `&[u8]` has no bytes past its
+length. One trace line is a bounded exception, and `the_exception_is_bounded`
+checks it is one line, that it is the hidden-wildcard case, and that the
+exception stays under a tenth of the subscription cases.
+
+Both drafted in
+`kairos-upstream/drafts/coremqtt-subscription-list-validation.md`.
+
+**The type as a refusal, which is a new member of an old family.** Five of the
+C's refusals here have no Rust counterpart: `MQTT_Init`'s null pointers,
+`MQTT_InitStatefulQoS`'s pointer-versus-count pairs, and — this is the new one —
+a QoS of 3 and a retain-handling option of 3. `MQTTQoS_t` can hold them;
+`QoS` cannot, so **the type refuses before any validator runs**. That is the
+null-pointer family one level up, and it means `validateTopicFilter`'s two
+`> 2` checks are unreachable here rather than transcribed. Those cases were
+removed from the driver, and the last-one-wins defect is demonstrated with an
+empty filter, which both arms can express.
+
+**Two poisons that needed cases, both with behaviour behind them.** An
+UNSUBSCRIBE ignores every subscription option, so a shared subscription a
+SUBSCRIBE refuses goes through unexamined — without a case for it, deleting the
+whole unsubscribe short-circuit changed no answer. And a filter of exactly
+`$share/` is **not** a shared subscription, because the C tests `length > 7`
+before comparing seven bytes; nothing else in the trace told `> 7` from `>= 7`.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -750,7 +794,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 168 passed, 0 failed (88 unit, 13 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic) |
+| `cargo test -p rusty_rtos_mqtt-core` | 178 passed, 0 failed (94 unit, 14 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -761,34 +805,48 @@ A count that belongs here because the README's honesty depends on it.
 
 | part of coreMQTT v5.0.2 | lines | state |
 |---|---:|---|
-| `core_mqtt_state.c` | 1,206 | **remade and proven** |
-| `core_mqtt_serializer.c`, the fixed-header codec | ~240 | **remade and proven** |
-| `core_mqtt_serializer_private.c`, the property primitives | ~309 | **remade and proven** |
-| `core_mqtt_serializer_private.c`, the fixed-header writers | ~180 | **remade and proven** |
-| `core_mqtt_serializer.c`, the packet-size calculators | ~300 | **remade and proven** |
-| `core_mqtt_serializer.c`, the acknowledgement deserializers | ~586 | **remade and proven** |
-| `core_mqtt_serializer.c`, the CONNACK path | ~566 | **remade and proven** |
-| `core_mqtt_serializer.c`, the incoming PUBLISH | ~466 | **remade and proven** |
-| `core_mqtt_serializer.c`, the DISCONNECT, both directions | ~505 | **remade and proven** |
-| `core_mqtt_serializer.c`, the CONNECT | ~348 | **remade and proven** |
-| `core_mqtt_serializer.c`, the outgoing PUBLISH | ~584 | **remade and proven** |
-| `core_mqtt_serializer.c`, SUBSCRIBE, UNSUBSCRIBE, the acks and PINGREQ | ~604 | **remade and proven** |
-| `core_mqtt_serializer.c`, the transport reader | ~114 | **remade and proven** |
-| `core_mqtt_serializer.c`, the outgoing property validators | 695 | **remade and proven** |
-| `core_mqtt_serializer.c`, the context, the constructors and the parameter validator | 230 | **remade and proven** |
-| `core_mqtt_serializer.c`, the rest | ~870 | not written: two logging functions (165 lines) and the file's preamble. **Every other function in the file is remade** — checked against the file's function list, not against how complete the last slice felt. |
-| `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
-| `core_mqtt_prop_serializer.c` | 1,176 | **remade and proven** |
-| `core_mqtt_prop_deserializer.c` | 880 | **remade and proven** |
+## How much of coreMQTT is remade
 
-| `core_mqtt.c`, topic matching and the naming tables | 581 | **remade and proven** |
-| `core_mqtt.c`, the rest | 5,037 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **61.2 % remade** |
+Counted by `oracle/coverage.py`, which reads the pinned source, enumerates every
+function definition in it, and checks each against `oracle/REMADE.txt`. That is
+the only place the number comes from; `--check` fails if the list names a
+function the pinned source does not have.
 
-The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
-void` of `LogError` calls with no observable behaviour. They are counted as not
-written rather than claimed, because a remake that produces no log line has not
-remade a logger.
+```
+functions      173 / 218    79.4 %
+function lines  9198 / 13066  70.4 %
+all lines       9198 / 15643  58.8 %   (2577 lines are preamble and cannot be remade)
+```
+
+**The headline is the first line.** A function is the unit that can be
+transcribed and diffed. The third is reported only so nobody reconstructs it and
+believes it: 2,577 of coreMQTT's lines are includes, macros, doxygen and
+`/*---*/` rules, and there is nothing in a doxygen block to remake, so that
+figure cannot reach 100 % however much is done.
+
+| file | functions remade |
+|---|---|
+| `core_mqtt_state.c` | 19 / 19 |
+| `core_mqtt_serializer.c` | 68 / 70 |
+| `core_mqtt_serializer_private.c` | 15 / 15 |
+| `core_mqtt_prop_serializer.c` | 23 / 23 |
+| `core_mqtt_prop_deserializer.c` | 31 / 31 |
+| `core_mqtt.c` | 17 / 60 |
+
+The two outstanding in `core_mqtt_serializer.c` are `logConnackResponse` and
+`logAckResponse`: `static void`s of `LogError` calls with no observable
+behaviour. They are counted as not written rather than claimed, because a remake
+that produces no log line has not remade a logger. The 43 outstanding in
+`core_mqtt.c` are the part that needs a transport — the send paths, the receive
+loop, the acknowledgement handling and `MQTT_Connect`.
+
+**This replaces the earlier figure, which was wrong.** Until 2026-09-18 this
+table divided a hand-maintained sum of per-slice line counts by all 15,643
+lines. The numerators were measured with a looser boundary than the denominator
+— they counted the comment blocks *between* functions — so the two were never on
+the same basis, the result (61.2 %) was inflated against the strict count, and
+it could never have reached 100 %. Same class of error as the double-counted
+reader in slice 15, and the same fix: one script, checked in, run on demand.
 
 No speed number and no size number: nothing here has been benchmarked, and
 nothing has run on a chip.

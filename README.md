@@ -83,12 +83,15 @@ lives.
 - **Proven**: topic matching, the first slice of `core_mqtt.c` — swept as a
   printed 39 × 39 **grid** plus 2.4 million digested pairs, which showed a
   wildcard filter silently missing a whole class of topic.
+- **Proven**: the client context and the subscription validators — where only
+  the last entry in a list turns out to decide whether the list is valid, and a
+  topic filter is searched past its length.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and one of them is now the only big one.** Most of the connection
-state machine (`core_mqtt.c`, 5,037 of its 5,618 lines) is **not written**, and
-neither are
+**Known gaps: 45 functions, all but two of them in `core_mqtt.c`.** What is
+left is the part that needs a transport — the send paths, the receive loop, the
+acknowledgement handling and `MQTT_Connect` — and
 `core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
 does not have. Everything else is remade: this crate can build and read every
 MQTT packet, off a socket or out of a buffer, and assemble, check and walk back
@@ -124,9 +127,10 @@ SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, 20 lines comparing
 the transport reader CALL FOR CALL, 94 lines across the six outgoing property
 validators — 36 of them sweeps — 56 lines finishing that file, which run the
 library's TWO header readers side by side, 73 lines across the MQTT 5 property
-builders, 55 across the property reader and 109 across topic matching — all at
-the pinned v5.0.2. **61.2 % of the library: everything but most of the
-connection state machine and two logging functions.** 168 tests. **This crate reads every packet a broker can send, off a socket or
+builders, 55 across the property reader, 109 across topic matching and 41
+across the client context — all at the pinned v5.0.2. **173 of coreMQTT's 218
+functions, 79.4 %**, counted by `oracle/coverage.py` from the pinned source.
+178 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1367,6 +1371,63 @@ the tidier-looking rule, and the 256-value digest caught it immediately.
 The one that could not fire is the `strncmp` fast path: deleting it changes no
 answer, because the general walk matches every string against itself unaided.
 Pinned over all 780 strings up to length four.
+
+## The client context
+
+**41 trace lines agree with `core_mqtt.c`, except one** — the constructor, the
+packet-identifier allocator, and the validators an outgoing SUBSCRIBE,
+UNSUBSCRIBE or PUBLISH goes through. `MQTT_Subscribe` validates *before* it
+looks at the connection status, so an unconnected context separates the two
+answers cleanly: a malformed list gives `BadParameter` and a well-formed one
+gives `StatusNotConnected`.
+
+### Two defects, and both are about a list
+
+**Only the last entry in a subscription list decides whether the list is
+valid.** `validateSubscribeUnsubscribeParams` ends in a loop that **assigns**
+its status and never breaks, so every earlier entry's verdict is written over:
+
+```
+sub bad-then-good shapes=empty:0:0:0,plain:0:0:0 -> StatusNotConnected
+sub good-then-bad shapes=plain:0:0:0,empty:0:0:0 -> BadParameter
+sub empty-filter  shapes=empty:0:0:0             -> BadParameter
+```
+
+The same two entries, in both orders, with opposite answers. The loop three
+lines above it, over the same list, *does* break — which is what makes this a
+slip rather than a decision. Everything the per-entry validator checks is lost
+this way, including every shared-subscription rule, so the client goes on to
+build and send a SUBSCRIBE carrying `$share//a/b`.
+
+**And a topic filter is searched past its length.**
+`checkWildcardSubscriptions` reaches for the filter with `strchr`, which runs to
+a NUL — while `MQTTSubscribeInfo_t` carries a pointer *and* a length, and every
+other function that touches a filter uses the length. A filter of `"abc"` with
+length 3, inside a buffer reading `"abc#"`, is refused as containing a wildcard.
+
+That is the second thing in this library the Rust arm **cannot reproduce**: a
+`&[u8]` has no bytes past its length. One trace line is a bounded exception,
+checked by a test, exactly as in the property builder.
+
+### What a trace should not ask
+
+Five of the C's refusals here have no Rust counterpart, and they are not in the
+trace rather than failing in it:
+
+- `MQTT_Init`'s five null-pointer checks — the transport, clock and callback are
+  supplied where they are used.
+- `MQTT_InitStatefulQoS`'s four pointer-versus-count checks — slices carry both.
+- a QoS of 3 and a retain-handling option of 3, which `MQTTQoS_t` can hold and
+  `QoS` cannot. **This is the type refusing before any validator runs**, which
+  is the same family one level up.
+
+### Poison-proven on fifteen behaviours, fifteen caught
+
+Two needed cases before they would fire, and both gaps had real behaviour behind
+them: an UNSUBSCRIBE ignores every subscription option (so a shared subscription
+a SUBSCRIBE refuses goes through unexamined), and a filter of exactly `$share/`
+is **not** a shared subscription, because the C tests `length > 7` before
+comparing seven bytes.
 
 ## The gate
 

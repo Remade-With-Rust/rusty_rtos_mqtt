@@ -64,3 +64,6 @@ oracle/propread_driver.pdb
 oracle/topic_driver
 oracle/topic_driver.exe
 oracle/topic_driver.pdb
+oracle/client_driver
+oracle/client_driver.exe
+oracle/client_driver.pdb
