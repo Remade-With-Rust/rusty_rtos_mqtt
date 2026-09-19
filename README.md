@@ -1,16 +1,19 @@
 # rusty_rtos_mqtt
 
+[![Remade With Rust](https://img.shields.io/badge/Remade%20With-Rust-000?logo=rust&logoColor=fff)](https://github.com/remade-with-rust)
+[![By Mata Network](https://img.shields.io/badge/by-Mata%20Network-5b2be0)](https://www.mata.network)
 [![crates.io](https://img.shields.io/crates/v/rusty_rtos_mqtt.svg)](https://crates.io/crates/rusty_rtos_mqtt)
 [![docs.rs](https://docs.rs/rusty_rtos_mqtt/badge.svg)](https://docs.rs/rusty_rtos_mqtt)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-A `no_std` MQTT publish state machine, fixed-header codec, MQTT 5 property
-primitives, packet-size calculators, **every packet a broker can send** and
-**every packet a client can send** — twelve proven slices of the Kairos remake of
-coreMQTT. MIT OR Apache-2.0.
+A `no_std` MQTT 5 client: the publish state machine, the whole wire codec in
+both directions, the connection, the receive loop and the acknowledgements —
+**all 218 of coreMQTT v5.0.2's 218 functions**, counted from the pinned source by
+[a checked-in script](https://github.com/Remade-With-Rust/rusty_rtos_mqtt/blob/main/oracle/coverage.py). MIT OR Apache-2.0.
 
-**K7's fourth library, and the first one too big to remake in one go.** coreMQTT
-v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
+**K7's fourth library, and the first one too big to remake in one go** — so it
+was remade in twenty-four proven slices, each one diffed against the C.
+coreMQTT v5.0.2 is **21,102 lines**. `core_mqtt_state.c` is 1,206 of them and includes
 nothing but its own header — no bytes, no transport, no clock — so it is a
 complete, provable unit on its own, and it is where MQTT's hardest correctness
 lives.
@@ -103,7 +106,7 @@ lives.
   as the C does it. `forbid(unsafe)`.
 
 **No known gaps: 218 of 218 functions, measured by
-[`oracle/coverage.py`](oracle/coverage.py) against the pinned source.** This
+[`oracle/coverage.py`](https://github.com/Remade-With-Rust/rusty_rtos_mqtt/blob/main/oracle/coverage.py) against the pinned source.** This
 crate builds and reads every MQTT packet, off a socket or out of a buffer;
 assembles, checks and walks back every property section either end may send;
 opens a connection, runs its receive loop, answers its acknowledgements and
@@ -116,9 +119,9 @@ portfolio in memory-safe Rust, as independent packages that expose the API a
 FreeRTOS developer already knows and prove every scheduling decision against
 the C kernel's own trace.
 
-- This package's plan: [docs/plans/rusty_rtos_mqtt.md](docs/plans/rusty_rtos_mqtt.md)
-- Every number: [docs/LEDGER.md](docs/LEDGER.md)
-- The family plan: Kairos `docs/plans/rtos-mission.md` (umbrella repo)
+- This package's plan: [docs/plans/rusty_rtos_mqtt.md](https://github.com/Remade-With-Rust/rusty_rtos_mqtt/blob/main/docs/plans/rusty_rtos_mqtt.md)
+- Every number: [docs/LEDGER.md](https://github.com/Remade-With-Rust/rusty_rtos_mqtt/blob/main/docs/LEDGER.md)
+- The family plan: Kairos [`docs/plans/rtos-mission.md`](https://github.com/Remade-With-Rust/kairos/blob/main/docs/plans/rtos-mission.md)
 
 **Claims discipline:** this README makes no performance or capability claim that
 is not backed by a test, a benchmark ledger entry, or a kill test recorded in the
@@ -1734,6 +1737,37 @@ without `alloc`, plus `cargo deny check`. Firmware examples (Xtensa needs the
 esp toolchain; Cortex-M and RISC-V work on stable) are built from their own
 directories under `firmware/`.
 
+## Part of Remade With Rust
+
+This crate is part of **[Kairos](https://github.com/Remade-With-Rust/kairos)** —
+FreeRTOS remade in memory-safe Rust, as independent packages that expose the API
+a FreeRTOS developer already knows and prove every scheduling decision against
+the C kernel's own trace. `rusty_rtos_mqtt` is the K7 library that is **finished**:
+all 218 of coreMQTT v5.0.2's 218 functions, counted from the pinned source by a
+checked-in script.
+
+The family:
+[`rusty_rtos_core`](https://crates.io/crates/rusty_rtos_core),
+[`rusty_rtos_kernel`](https://crates.io/crates/rusty_rtos_kernel),
+[`rusty_rtos_port`](https://crates.io/crates/rusty_rtos_port),
+[`rusty_rtos_heap`](https://crates.io/crates/rusty_rtos_heap),
+[`rusty_rtos_json`](https://crates.io/crates/rusty_rtos_json),
+[`rusty_rtos_sntp`](https://crates.io/crates/rusty_rtos_sntp),
+[`rusty_rtos_mqtt`](https://crates.io/crates/rusty_rtos_mqtt),
+[`rusty_rtos_backoff`](https://crates.io/crates/rusty_rtos_backoff),
+`rusty_rtos-capi` and `rusty_rtos_demo`. Also check out the rest of
+**[github.com/remade-with-rust](https://github.com/remade-with-rust)**.
+
+## About Mata Network
+
+<!-- ORG BOILERPLATE — keep identical across repos -->
+
+[Mata Network](https://www.mata.network) builds sovereign, self-hostable
+infrastructure. **Remade With Rust** is our open-source home for the
+permissively-licensed building blocks that work depends on.
+
+<!-- /ORG BOILERPLATE -->
+
 ## License
 
 MIT OR Apache-2.0, at your option. FreeRTOS is MIT-licensed by Amazon.com,
@@ -1745,7 +1779,7 @@ published sources and links no FreeRTOS code.
 <!-- HARDENING-TABLE:BEGIN generated by use-protection-please — edit docs/plans/use-protection-please.md, not this block -->
 ## Hardening status
 
-**Tier** critical-path · **Audited** unrecorded (survey) · **v1.0.0 gates** 6/16 · [Full checklist](docs/plans/use-protection-please.md)
+**Tier** critical-path · **Audited** unrecorded (survey) · **v1.0.0 gates** 6/16 · [Full checklist](https://github.com/Remade-With-Rust/rusty_rtos_mqtt/blob/main/docs/plans/use-protection-please.md)
 
 `████░░░░░░░░░░░░░░░░` **22%** &nbsp;·&nbsp; 8 Completed · 0 Scheduled · 28 Incomplete · 19 N/A
 
