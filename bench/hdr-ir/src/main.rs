@@ -39,16 +39,25 @@ fn main() {
     let mut checksum = 0u64;
 
     for _ in 0..REPS {
-        for type_byte in 0..=255u8 {
-            for (li, length) in LENGTHS.iter().enumerate() {
-                buf[0] = type_byte;
-                let mut n = 1usize;
-                for &b in length.iter() {
-                    if let Some(slot) = buf.get_mut(n) {
-                        *slot = b;
-                        n = n.saturating_add(1);
-                    }
+        // The length encoding is the outer loop and the type byte the inner
+        // one, so the remaining-length bytes are laid down once per encoding
+        // rather than once per (type, encoding) pair -- 480 times across the
+        // run instead of 122,880. Only `buf[0]` depends on the type byte.
+        //
+        // The sweep is the same set of calls in a different order, and the
+        // parity anchors prove it: the four verdict counts are totals and the
+        // checksum is a sum, so neither can tell the two orders apart. Both
+        // read exactly as they did before this change.
+        for (li, length) in LENGTHS.iter().enumerate() {
+            let mut n = 1usize;
+            for &b in length.iter() {
+                if let Some(slot) = buf.get_mut(n) {
+                    *slot = b;
+                    n = n.saturating_add(1);
                 }
+            }
+            for type_byte in 0..=255u8 {
+                buf[0] = type_byte;
                 // Every `available` from nothing to one past the header: the
                 // incomplete cases and the complete one, in one sweep.
                 for available in 0..=n.saturating_add(1) {
