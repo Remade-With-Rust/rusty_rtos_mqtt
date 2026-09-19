@@ -95,17 +95,27 @@ fn match_end_wildcards(filter: &[u8], at: usize) -> bool {
     // `sport` against `sport/#`: the multi-level wildcard stands for the
     // parent level as well as its children.
     if length >= 3
-        && at == length.saturating_sub(3)
-        && filter.get(at.saturating_add(1)).copied() == Some(b'/')
-        && filter.get(at.saturating_add(2)).copied() == Some(b'#')
+        && at == length.wrapping_sub(3)
+        && filter.get(at.wrapping_add(1)).copied() == Some(b'/')
+        && filter.get(at.wrapping_add(2)).copied() == Some(b'#')
     {
         found = true;
     }
 
     // `sport/` against `sport/+` or `sport/#`.
+    // Saturating as defence in depth, not because a test needs it. A
+    // one-character filter is the only length that makes `length - 2`
+    // saturate, and wrapping it instead leaves all 99 tests passing --
+    // because that case cannot arrive here. `filter_index` is bounded by
+    // `filter.len()`, so a one-byte filter pins it at zero; a zero
+    // `filter_index` means no wildcard step has run, so `name_index` is zero
+    // too; and `name_index == topic.len() - 1` then makes the topic one byte
+    // as well, which `matches` has already answered with its exact-match
+    // shortcut. The saturation holds only while that chain does, and it
+    // costs one conditional move, so it stays.
     if at == length.saturating_sub(2) && filter.get(at).copied() == Some(b'/') {
         found = matches!(
-            filter.get(at.saturating_add(1)).copied(),
+            filter.get(at.wrapping_add(1)).copied(),
             Some(b'+') | Some(b'#')
         );
     }
@@ -129,7 +139,7 @@ fn match_wildcards(topic: &[u8], filter: &[u8], name_index: usize, filter_index:
     // A wildcard is only a wildcard at the start of a filter or after a `/`.
     // `a+/b` has a literal `+` in it.
     let valid_here =
-        filter_index == 0 || filter.get(filter_index.saturating_sub(1)).copied() == Some(b'/');
+        filter_index == 0 || filter.get(filter_index.wrapping_sub(1)).copied() == Some(b'/');
 
     let here = filter.get(filter_index).copied();
 
@@ -143,11 +153,11 @@ fn match_wildcards(topic: &[u8], filter: &[u8], name_index: usize, filter_index:
                 break;
             }
 
-            name = name.saturating_add(1);
+            name = name.wrapping_add(1);
         }
 
-        let next_level_in_filter = filter_index < filter.len().saturating_sub(1)
-            && filter.get(filter_index.saturating_add(1)).copied() == Some(b'/');
+        let next_level_in_filter = filter_index < filter.len().wrapping_sub(1)
+            && filter.get(filter_index.wrapping_add(1)).copied() == Some(b'/');
 
         if next_level_in_topic && !next_level_in_filter {
             // The topic has more levels and the filter has run out.
@@ -169,7 +179,7 @@ fn match_wildcards(topic: &[u8], filter: &[u8], name_index: usize, filter_index:
                 stop: false,
                 matched: false,
                 name_index: name,
-                filter_index: filter_index.saturating_add(1),
+                filter_index: filter_index.wrapping_add(1),
             };
         }
 
@@ -187,7 +197,7 @@ fn match_wildcards(topic: &[u8], filter: &[u8], name_index: usize, filter_index:
 
     // `#` takes everything that is left, and must be the filter's last
     // character.
-    if here == Some(b'#') && filter_index == filter.len().saturating_sub(1) && valid_here {
+    if here == Some(b'#') && filter_index == filter.len().wrapping_sub(1) && valid_here {
         return Step {
             stop: true,
             matched: true,
@@ -215,7 +225,7 @@ fn match_filter(topic: &[u8], filter: &[u8]) -> bool {
         if topic.get(name_index) == filter.get(filter_index) {
             // The topic name has been consumed but the filter has not: the
             // filter may still end in a wildcard that covers it.
-            if name_index == topic.len().saturating_sub(1) {
+            if name_index == topic.len().wrapping_sub(1) {
                 matched = match_end_wildcards(filter, filter_index);
             }
         } else {
@@ -230,8 +240,8 @@ fn match_filter(topic: &[u8], filter: &[u8]) -> bool {
             break;
         }
 
-        name_index = name_index.saturating_add(1);
-        filter_index = filter_index.saturating_add(1);
+        name_index = name_index.wrapping_add(1);
+        filter_index = filter_index.wrapping_add(1);
     }
 
     if !matched {
