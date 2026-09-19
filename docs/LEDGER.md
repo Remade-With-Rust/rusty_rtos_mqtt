@@ -641,6 +641,50 @@ straight from the builder into the CONNECT and will validators. Two arms that
 each agree with the C can still disagree with each other — the shape the
 packet-size calculators and the writers established in slice 5.
 
+## Conformance (2026-09-18) — the MQTT 5 property reader
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **55 / 55** | `cargo test -p rusty_rtos_mqtt-core --test propread`. C arm: `oracle/propread_driver.c` driving `core_mqtt_prop_deserializer.c` verbatim from v5.0.2 at `04845c6a`. |
+| getter sweeps | **24 x 256 = 6,144 calls** | every getter against every identifier, with each accepted set printed and each cursor position digested. |
+| table sweeps | **2 x 256** | the identifier table and the width table over the same alphabet, both accepted sets printed. |
+| named cases | **26** | one of every width, the wrong getter for the property under the cursor, the cursor at and past the end, a skip of every width, and a truncated value for each. |
+| what is compared per call | **the status, the value AND the cursor** | every function advances a caller-owned index; a getter that answered right and left the cursor one byte out would desynchronise every call after it. |
+| poison rows | **10 introduced, 8 caught** | the two that could not fire are the property below. |
+
+**Every getter accepts exactly one identifier**, all twenty-two of them, across
+6,144 calls. A getter is an assertion about what is under the cursor, not a
+search, so a section read in the wrong order fails rather than handing back a
+number from the wrong property. `n=1` on every `getter` line is that rule.
+
+**Two tables over one alphabet, and this time they agree.**
+`MQTT_GetNextPropertyType` lists twenty-seven identifiers;
+`MQTT_SkipNextProperty` sorts the same bytes into five width groups. Both
+accepted sets are printed and they are identical (`tables differ=0`). Five
+tables in this library disagree with a sibling — the acknowledgement reason
+codes, the DISCONNECT codes, the PUBLISH property validator, the CONNECT context
+filler and the builder's packet table — so **a differential that only ever
+reported disagreement would be one nobody believed when it reported
+agreement**, and the agreement is asserted rather than assumed. In the Rust arm
+one `width_of` serves both callers, so they cannot drift.
+
+**The guard, twenty-fourth shape: a cursor differential needs a case where the
+SECOND call can only work if the first left the cursor right.** Printing an
+index is necessary and not sufficient — a trace of single-call cases compares a
+number nothing depends on. `the_trace_chains_reads_so_the_cursor_carries_weight`
+requires at least four cases that read twice and succeed twice, and one skip of
+each of the five widths.
+
+**And the property the two silent poisons proved, third instance.** A budget one
+byte too generous, and a cursor allowed to sit exactly on the end, change no
+answer: the read that follows is bounded by the slice as well as by the
+arithmetic. Same shape as the builder's two, and the same conclusion — **an
+off-by-one in a length calculation is a bug in C and a redundancy here.** Not an
+argument for sloppy arithmetic: the budget is transcribed exactly and a budget
+that was too SMALL would show immediately. It is the reason the slip that
+overflows `addPropUtf8` cannot overflow anything in this crate. Pinned by
+`no_budget_error_can_read_past_the_section`.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -656,7 +700,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 146 passed, 0 failed (74 unit, 12 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild) |
+| `cargo test -p rusty_rtos_mqtt-core` | 157 passed, 0 failed (81 unit, 13 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -685,10 +729,10 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_serializer.c`, the rest | ~870 | not written: two logging functions (165 lines) and the file's preamble. **Every other function in the file is remade** — checked against the file's function list, not against how complete the last slice felt. |
 | `core_mqtt_serializer_private.c`, the rest | ~164 | not written |
 | `core_mqtt_prop_serializer.c` | 1,176 | **remade and proven** |
-| `core_mqtt_prop_deserializer.c` | 880 | not written |
+| `core_mqtt_prop_deserializer.c` | 880 | **remade and proven** |
 
 | `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **51.8 % remade** |
+| **total** | **15,643** (plus 5,459 of headers) | **57.5 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

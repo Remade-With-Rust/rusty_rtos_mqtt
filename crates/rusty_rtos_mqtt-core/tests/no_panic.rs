@@ -508,3 +508,54 @@ fn building_into_any_buffer_never_writes_past_it() {
         assert!(bytes[written..].iter().all(|byte| *byte == 0xAA));
     }
 }
+
+// ---------------------------------------------------------------------------
+// The property cursor.
+//
+// This one reads a section a BROKER sent, so every byte is chosen by the peer.
+// The invariant is the mirror of the builder's: the cursor never leaves the
+// section, and a refusal never moves it.
+
+use rusty_rtos_mqtt_core::cursor::PropertyCursor;
+
+/// Arbitrary property sections, walked from arbitrary positions.
+#[test]
+fn walking_any_property_section_never_leaves_it() {
+    let mut rng = Lcg::new(18);
+
+    for _ in 0..100_000 {
+        let len = rng.below(20) as usize;
+        let bytes: Vec<u8> = (0..len).map(|_| (rng.next() >> 16) as u8).collect();
+
+        let mut cursor = PropertyCursor::new(&bytes);
+        cursor.seek(rng.below(24) as usize);
+
+        for _ in 0..6 {
+            let before = cursor.position();
+            let _ = cursor.next_type();
+            assert_eq!(before, cursor.position(), "a peek moved the cursor");
+
+            // On CLONES: any of these may succeed, and a getter that succeeds
+            // is supposed to move the cursor. The invariant under test is
+            // about the one that FAILS, so the probes must not disturb the
+            // cursor `skip` is then measured against.
+            let _ = cursor.clone().session_expiry();
+            let _ = cursor.clone().reason_string();
+            let _ = cursor.clone().user_property();
+            let _ = cursor.clone().subscription_id();
+            assert_eq!(before, cursor.position(), "a clone moved the original");
+
+            if cursor.skip().is_err() {
+                assert_eq!(before, cursor.position(), "a refusal moved the cursor");
+                break;
+            }
+
+            assert!(
+                cursor.position() <= bytes.len().max(before),
+                "the cursor reached {} in a {}-byte section",
+                cursor.position(),
+                bytes.len()
+            );
+        }
+    }
+}

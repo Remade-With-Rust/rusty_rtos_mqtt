@@ -1,0 +1,55 @@
+geometry getters=24 cases=26
+known accepted=01,02,03,08,09,0b,11,12,13,15,16,17,18,19,1a,1c,1f,21,22,23,24,25,26,27,28,29,2a n=27
+skippable accepted=01,02,03,08,09,0b,11,12,13,15,16,17,18,19,1a,1c,1f,21,22,23,24,25,26,27,28,29,2a n=27
+tables differ=0 digest=593d5505e1f7a5b9
+getter session-expiry accepted=11 n=1 digest=1e3b515cf349fb61
+getter receive-max accepted=21 n=1 digest=edec045658c9ce67
+getter max-qos accepted=24 n=1 digest=48d3ec9c51d78538
+getter retain-available accepted=25 n=1 digest=ab4b5bb590e383d4
+getter max-packet-size accepted=27 n=1 digest=4b2246e4c2d171c1
+getter assigned-client-id accepted=12 n=1 digest=5abcc64d45b328d5
+getter topic-alias-max accepted=22 n=1 digest=9470e4dd70a2173f
+getter reason-string accepted=1f n=1 digest=561d802771f7d141
+getter wildcard-available accepted=28 n=1 digest=04f8aa346931a9f8
+getter subs-id-available accepted=29 n=1 digest=81fb169bdf032d14
+getter shared-sub-available accepted=2a n=1 digest=8b49a6055bf6e358
+getter server-keep-alive accepted=13 n=1 digest=d3cdce781670b427
+getter response-info accepted=1a n=1 digest=f2b86497b7764455
+getter server-ref accepted=1c n=1 digest=4e1f16f8f9272835
+getter auth-method accepted=15 n=1 digest=b85bfdb5e8decba1
+getter auth-data accepted=16 n=1 digest=32b2cea515c09295
+getter payload-format accepted=01 n=1 digest=3f31db5d78c40894
+getter message-expiry accepted=02 n=1 digest=f878f0d8cfe451d5
+getter topic-alias accepted=23 n=1 digest=a115d099dd826227
+getter response-topic accepted=08 n=1 digest=9c482d6e86aaab75
+getter correlation-data accepted=09 n=1 digest=1e1efe513799c2e1
+getter subscription-id accepted=0b n=1 digest=caa52d3097f228b4
+getter content-type accepted=03 n=1 digest=effe4a6a433b2381
+getter user-prop accepted=26 n=1 digest=9b1ac449bcdfad41
+read 0 session-expiry at=0 props=1100000e10 | session-expiry->Success value=3600 at=5
+read 1 receive-max at=0 props=210014 | receive-max->Success value=20 at=3
+read 2 max-qos at=0 props=2401 | max-qos->Success value=1 at=2
+read 3 reason-string at=0 props=1f00026869 | reason-string->Success text=6869 at=5
+read 4 subscription-id at=0 props=0b07 | subscription-id->Success value=7 at=2
+read 5 user-prop at=0 props=2600016b000176 | user-prop->Success key=6b val=76 at=7
+read 6 receive-max-read-as-session-expiry at=0 props=210014 | session-expiry->BadParameter at=0
+read 7 session-expiry-read-as-user-prop at=0 props=1100000e10 | user-prop->BadParameter at=0
+read 8 two-in-a-row at=0 props=2401210014250100 | max-qos->Success value=1 at=2 | receive-max->Success value=20 at=5
+read 9 start-past-the-first at=2 props=2401210014 | receive-max->Success value=20 at=5
+read 10 start-at-the-end at=2 props=2401 | max-qos->EndOfProperties at=2
+read 11 start-past-the-end at=3 props=2401 | max-qos->EndOfProperties at=3
+read 12 empty-section at=0 props=- | next-type->EndOfProperties at=0
+read 13 skip-then-read at=0 props=2401210014250100 | skip->Success at=2 | receive-max->Success value=20 at=5
+read 14 skip-a-string at=0 props=1f00026869240100 | skip->Success at=5 | max-qos->Success value=1 at=7
+read 15 skip-a-user-prop at=0 props=2600016b0001762401 | skip->Success at=7 | max-qos->Success value=1 at=9
+read 16 skip-a-subscription-id at=0 props=0b810100 | skip->Success at=3 | next-type->BadParameter at=3
+read 17 skip-twice-off-the-end at=0 props=2401 | skip->Success at=2 | skip->EndOfProperties at=2
+read 18 truncated-uint32 at=0 props=110000 | session-expiry->BadResponse at=0
+read 19 truncated-uint16 at=0 props=2100 | receive-max->BadResponse at=0
+read 20 truncated-string at=0 props=1f000968 | reason-string->BadResponse at=0
+read 21 truncated-user-prop at=0 props=2600016b00 | user-prop->BadResponse at=0
+read 22 truncated-skip at=0 props=110000 | skip->BadResponse at=0
+read 23 truncated-subscription-id at=0 props=0b81 | subscription-id->BadResponse at=0
+read 24 non-minimal-subscription-id at=0 props=0b8000 | subscription-id->BadResponse at=0
+read 25 walk-by-type at=0 props=24012501210014110000 | next-type->Success value=36 at=0 | skip->Success at=2 | next-type->Success value=37 at=2
+end

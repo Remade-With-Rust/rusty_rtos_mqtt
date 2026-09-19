@@ -77,16 +77,18 @@ lives.
   reproduce it. `addPropUtf8` forgets to count the property identifier byte, so
   it writes one past a buffer one byte too small. Six public adders go through
   it.
+- **Proven**: the MQTT 5 property reader, all of
+  `core_mqtt_prop_deserializer.c` — twenty-two getters that each demand one
+  identifier, and two tables over one alphabet that, this time, agree.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and about half of coreMQTT.** The MQTT 5 property **reader**
-(`core_mqtt_prop_deserializer.c`, 880 lines) and the connection state machine
-(`core_mqtt.c`, 5,618 lines) are **not written**, and neither are
+**Known gaps, and one of them is now the only big one.** The connection state
+machine (`core_mqtt.c`, 5,618 lines) is **not written**, and neither are
 `core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
-does not have. This crate can build and read every MQTT packet, off a socket or
-out of a buffer, assemble every property section a client may send and check it;
-it cannot yet run a connection.
+does not have. Everything else is remade: this crate can build and read every
+MQTT packet, off a socket or out of a buffer, and assemble, check and walk back
+every property section either end may send. It cannot yet run a connection.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -117,10 +119,10 @@ directions, 30 lines plus a 32-combination whole-packet sweep with the CONNECT,
 SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, 20 lines comparing
 the transport reader CALL FOR CALL, 94 lines across the six outgoing property
 validators — 36 of them sweeps — 56 lines finishing that file, which run the
-library's TWO header readers side by side, and 73 lines across the MQTT 5
-property builders — all at the pinned v5.0.2. **51.8 % of the library, and both
-`core_mqtt_serializer.c` and `core_mqtt_prop_serializer.c` are remade but for
-two logging functions.** 146 tests. **This crate reads every packet a broker can send, off a socket or
+library's TWO header readers side by side, 73 lines across the MQTT 5 property
+builders and 55 across the property reader — all at the pinned v5.0.2. **57.5 %
+of the library: everything but the connection state machine and two logging
+functions.** 157 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1250,6 +1252,62 @@ sent. Two arms that each agree with the C can still disagree with each other.
 ### Poison-proven on fourteen behaviours, twelve caught
 
 The two that could not fire are the pair above, and they became a test.
+
+## The MQTT 5 property reader
+
+**55 trace lines agree with `core_mqtt_prop_deserializer.c`** — the other half
+of the builder, and the file that walks a property section back.
+
+A reader has a problem a writer does not: it does not know what is in there. So
+the shape is a **cursor** — ask what is next, take it if you want it, skip it if
+you do not, stop when the section runs out. Every one of the twenty-two getters
+demands **one** identifier and refuses every other, which makes a getter an
+assertion about what is under the cursor rather than a search.
+
+```
+getter max-qos      accepted=24 n=1
+getter receive-max  accepted=21 n=1
+getter reason-string accepted=1f n=1
+```
+
+Twenty-two getters against 256 identifiers: each accepts exactly one. That is a
+result, and `the_two_tables_agree_and_the_trace_records_it` asserts it.
+
+### Two tables over one alphabet — and this time they agree
+
+`MQTT_GetNextPropertyType` says whether a byte is a property identifier at all.
+`MQTT_SkipNextProperty` maps the same byte to a **width**. They are written
+separately in the C, and a byte the first accepts and the second cannot skip
+would strand a reader half way through a section.
+
+```
+known     accepted=01,02,03,08,09,0b,11,12,13,15,16,17,18,19,1a,1c,1f,21,22,23,24,25,26,27,28,29,2a n=27
+skippable accepted=01,02,03,08,09,0b,11,12,13,15,16,17,18,19,1a,1c,1f,21,22,23,24,25,26,27,28,29,2a n=27
+tables differ=0
+```
+
+Identical. After five tables in this library that disagreed with a sibling, a
+differential that only ever reported disagreement would be one nobody believed
+when it reported agreement — so the agreement is asserted too. In this crate one
+table serves both callers, so they cannot drift.
+
+### The cursor is the answer
+
+Every call advances a caller-owned index, so a getter that returned the right
+value and left the cursor one byte out would pass a value-only comparison and
+desynchronise everything after it. Every line prints the index, and the cases
+that read **twice** are what make that index load-bearing — the second read
+demands a particular identifier and finds one only if the first landed exactly
+on it.
+
+### Poison-proven on ten behaviours, eight caught
+
+The two that could not fire are the same property as the builder's, third
+instance in the package: **the budget is advisory, and the slice is the
+guarantee.** A budget one byte too generous, and a cursor allowed to sit exactly
+on the end, both change no answer, because the read that follows is bounded by
+the slice as well as by the arithmetic. Pinned by a sweep of every getter
+against every truncation of a section, from every starting position.
 
 ## The gate
 

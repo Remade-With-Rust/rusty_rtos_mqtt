@@ -199,3 +199,15 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/propbuild_driver" > "$here/propbuild.trace"
 echo "wrote $(wc -l < "$here/propbuild.trace") lines to $here/propbuild.trace"
+
+# The property-reader differential's C arm: `core_mqtt_prop_deserializer.c`,
+# the other half of the builder -- and two more tables over the same alphabet,
+# swept and printed side by side.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/propread_driver" \
+   "$ser" "$priv" "$props" "$propd" "$here/propread_driver.c"
+
+"$here/propread_driver" > "$here/propread.trace"
+echo "wrote $(wc -l < "$here/propread.trace") lines to $here/propread.trace"

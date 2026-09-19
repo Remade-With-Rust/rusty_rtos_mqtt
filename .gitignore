@@ -58,3 +58,6 @@ oracle/context_driver.pdb
 oracle/propbuild_driver
 oracle/propbuild_driver.exe
 oracle/propbuild_driver.pdb
+oracle/propread_driver
+oracle/propread_driver.exe
+oracle/propread_driver.pdb

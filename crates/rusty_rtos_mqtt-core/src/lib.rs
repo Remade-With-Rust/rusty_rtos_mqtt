@@ -74,10 +74,13 @@ pub mod context;
 /// The buffer an outgoing property section is written into.
 pub mod builder;
 
+/// Walking a property section back, one property at a time.
+pub mod cursor;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
-pub use builder::{BuilderError, PropertyBuilder};
+pub use builder::{BuilderError, PropertyBuilder, allowed_properties};
 pub use connack::{
     CONNACK_MINIMUM_SIZE, ClientSettings, ConnAck, ConnAckError, SESSION_PRESENT_MASK,
     ServerSettings, deserialize_connack,
@@ -90,6 +93,7 @@ pub use context::{
     ClientLimits, ConnectionProperties, ContextError, MAX_PACKET_SIZE, ServerLimits,
     update_with_connect_props,
 };
+pub use cursor::{CursorError, PropertyCursor, Width, width_of};
 pub use disconnect::{
     Disconnect, DisconnectError, DisconnectSize, deserialize_disconnect, disconnect_packet_size,
     reason_code_allowed, serialize_disconnect, validate_outgoing_properties,
