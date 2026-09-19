@@ -60,7 +60,10 @@ fn main() {
                 buf[0] = type_byte;
                 // Every `available` from nothing to one past the header: the
                 // incomplete cases and the complete one, in one sweep.
-                for available in 0..=n.saturating_add(1) {
+                // Exclusive, not inclusive: `RangeInclusive` carries an
+                // exhausted flag and tests it every step, and this is the
+                // innermost loop of the sweep. The bound is the same one.
+                for available in 0..n.saturating_add(2) {
                     match process_incoming_packet_type_and_length(&buf, available) {
                         Ok(header) => {
                             ok = ok.wrapping_add(1);
