@@ -77,9 +77,9 @@ pub fn matches(topic: &[u8], filter: &[u8]) -> Result<bool, TopicError> {
 
     // §4.7.2: a topic beginning with `$` is not matched by a filter beginning
     // with a wildcard, so `$SYS/broker` is invisible to `#`.
-    let filter_starts_with_wildcard = matches!(filter.first(), Some(&b'+') | Some(&b'#'));
+    let filter_starts_with_wildcard = matches!(filter.first().copied(), Some(b'+') | Some(b'#'));
 
-    if topic.first() == Some(&b'$') && filter_starts_with_wildcard {
+    if topic.first().copied() == Some(b'$') && filter_starts_with_wildcard {
         return Ok(false);
     }
 
@@ -96,15 +96,18 @@ fn match_end_wildcards(filter: &[u8], at: usize) -> bool {
     // parent level as well as its children.
     if length >= 3
         && at == length.saturating_sub(3)
-        && filter.get(at.saturating_add(1)) == Some(&b'/')
-        && filter.get(at.saturating_add(2)) == Some(&b'#')
+        && filter.get(at.saturating_add(1)).copied() == Some(b'/')
+        && filter.get(at.saturating_add(2)).copied() == Some(b'#')
     {
         found = true;
     }
 
     // `sport/` against `sport/+` or `sport/#`.
-    if at == length.saturating_sub(2) && filter.get(at) == Some(&b'/') {
-        found = matches!(filter.get(at.saturating_add(1)), Some(&b'+') | Some(&b'#'));
+    if at == length.saturating_sub(2) && filter.get(at).copied() == Some(b'/') {
+        found = matches!(
+            filter.get(at.saturating_add(1)).copied(),
+            Some(b'+') | Some(b'#')
+        );
     }
 
     found
@@ -125,7 +128,8 @@ fn match_wildcards(topic: &[u8], filter: &[u8], name_index: usize, filter_index:
 
     // A wildcard is only a wildcard at the start of a filter or after a `/`.
     // `a+/b` has a literal `+` in it.
-    let valid_here = filter_index == 0 || filter.get(filter_index.saturating_sub(1)) == Some(&b'/');
+    let valid_here =
+        filter_index == 0 || filter.get(filter_index.saturating_sub(1)).copied() == Some(b'/');
 
     let here = filter.get(filter_index).copied();
 
@@ -134,7 +138,7 @@ fn match_wildcards(topic: &[u8], filter: &[u8], name_index: usize, filter_index:
         let mut next_level_in_topic = false;
 
         while name < topic.len() {
-            if topic.get(name) == Some(&b'/') {
+            if topic.get(name).copied() == Some(b'/') {
                 next_level_in_topic = true;
                 break;
             }
@@ -143,7 +147,7 @@ fn match_wildcards(topic: &[u8], filter: &[u8], name_index: usize, filter_index:
         }
 
         let next_level_in_filter = filter_index < filter.len().saturating_sub(1)
-            && filter.get(filter_index.saturating_add(1)) == Some(&b'/');
+            && filter.get(filter_index.saturating_add(1)).copied() == Some(b'/');
 
         if next_level_in_topic && !next_level_in_filter {
             // The topic has more levels and the filter has run out.
