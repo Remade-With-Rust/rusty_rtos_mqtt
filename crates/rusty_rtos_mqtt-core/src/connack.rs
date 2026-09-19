@@ -245,6 +245,60 @@ impl From<AckError> for ConnAckError {
     }
 }
 
+/// `logConnackResponse`: what a CONNACK's reason code means, in words.
+///
+/// # A function with no observable behaviour, remade as one that has some
+///
+/// The C's is a `static void` whose every branch calls `LogError` — and
+/// `core_mqtt_config_defaults.h` defines `LogError` as nothing, so on a stock
+/// build this function compiles to a switch that does nothing at all. There is
+/// no differential to run against it: turning the logging on would mean
+/// compiling the pinned C with a configuration it does not ship, which is the
+/// one thing every other arm of this oracle refuses to do.
+///
+/// So the oracle here is the pinned **source text**, read by
+/// `oracle/logtable.py` into `oracle/logtable.trace`, and `tests/logtable.rs`
+/// diffs this table against it. A message that drifts on either side fails the
+/// build.
+///
+/// And the string is RETURNED rather than logged, which is the only honest
+/// shape for a crate with no logger — and strictly more useful, because the
+/// C's message is unreachable unless the application defines the macro.
+///
+/// The default is the C's, which it follows with `assert( false )` and a
+/// comment saying the branch is unreachable because the caller has already
+/// checked. [`deserialize_connack`] is that caller.
+#[must_use]
+pub const fn reason_name(reason_code: u8) -> &'static str {
+    match reason_code {
+        0x00 => "Connection accepted.",
+        0x80 => "Connection refused: Unspecified error",
+        0x81 => "Connection refused: Malformed Packet.",
+        0x82 => "Connection refused: Protocol Error.",
+        0x83 => "Connection refused: Implementation specific error.",
+        0x84 => "Connection refused: Unsupported Protocol Version.",
+        0x85 => "Connection refused: Client Identifier not valid.",
+        0x86 => "Connection refused: Bad User Name or Password.",
+        0x87 => "Connection refused: Not authorized.",
+        0x88 => "Connection refused: Server unavailable.",
+        0x89 => "Connection refused: Server busy.",
+        0x8A => "Connection refused: Banned.",
+        0x8C => "Connection refused: Bad authentication method.",
+        0x90 => "Connection refused: Topic Name invalid.",
+        // The C's space before the full stop, kept: this table is a
+        // transcription and not a tidy-up.
+        0x95 => "Connection refused: Packet too large .",
+        0x97 => "Connection refused: Quota exceeded.",
+        0x99 => "Connection refused: Payload format invalid.",
+        0x9A => "Connection refused: Retain not supported.",
+        0x9B => "Connection refused: QoS not supported.",
+        0x9C => "Connection refused: Use another server.",
+        0x9D => "Connection refused: Server moved.",
+        0x9F => "Connection refused: Connection rate exceeded.",
+        _ => "Invalid reason code received.",
+    }
+}
+
 /// `MQTT_DeserializeConnAck`.
 ///
 /// # Errors

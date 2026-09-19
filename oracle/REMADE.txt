@@ -26,7 +26,17 @@ updateStatePublish
 validateTransitionAck
 validateTransitionPublish
 
-# --- core_mqtt_serializer.c (68 of 70) ---
+# --- core_mqtt_serializer.c (70 of 70) ---
+# The library's only two functions with NO observable behaviour: every branch
+# of both calls `LogError` or `LogDebug`, which the shipped config defines as
+# nothing. There is no run to diff against, so their oracle is the pinned
+# SOURCE TEXT -- `oracle/logtable.py` parses both switches out of it into
+# `oracle/logtable.trace`, and `tests/logtable.rs` sweeps all 256 codes against
+# that. `logAckResponse`'s other half, the `MQTTBadResponse` it answers for a
+# code outside its list, is `ack::validate_ack_reason_code` and is proven by the
+# acknowledgement differential's own sweep.
+logAckResponse
+logConnackResponse
 MQTTPropertyBuilder_Init
 MQTT_DeserializeAck
 MQTT_DeserializeConnAck

@@ -403,6 +403,50 @@ fn read_suback_status(reason_codes: &[u8]) -> Result<(), AckError> {
     Ok(())
 }
 
+/// `logAckResponse`'s message table: what a publish acknowledgement's reason
+/// code means, in words.
+///
+/// The **status** half of that function — `MQTTBadResponse` for anything not
+/// in this list — is [`validate_ack_reason_code`], and it is proven by the
+/// acknowledgement differential's 256-value sweep. This is the other half, and
+/// like [`connack::reason_name`](crate::connack::reason_name) it cannot be
+/// proven by running the C, because `LogDebug` and `LogError` are defined as
+/// nothing on a stock build. Its oracle is the pinned source text, read by
+/// `oracle/logtable.py`.
+///
+/// # Two of the C's messages are wrong, and they are transcribed anyway
+///
+/// `0x80` is Unspecified Error and its message reads "Connection rate
+/// exceeded", which belongs to a CONNACK's `0x9F`. And `0x00` logs **nothing**
+/// — the C's branch is a bare `( void ) packetIdentifier;` — so success has no
+/// message rather than an empty one.
+///
+/// A transcription is not a correction. Both are reproduced, both are in the
+/// trace, and the first is written up.
+#[must_use]
+pub const fn reason_message(reason_code: u8) -> &'static str {
+    match reason_code {
+        0x00 => "",
+        0x10 => "Publish accepted with packet id %hu: No matching subscribers.",
+        // The C's, and wrong: 0x80 is Unspecified Error.
+        0x80 => "Publish refused with packet id %hu: Connection rate exceeded.",
+        0x83 => concat!(
+            "Publish refused with packet id %hu:  The PUBLISH is valid but the ",
+            "receiver is not willing to accept it."
+        ),
+        0x87 => "Publish refused with packet id %hu: The PUBLISH is not authorized.",
+        0x90 => "Publish refused with packet id %hu: Topic Name not accepted.",
+        // The C's trailing space, kept.
+        0x91 => "Publish refused with packet id %hu: The Packet Identifier is already in use. ",
+        0x97 => "Publish refused with packet id %hu: Quota exceeded.",
+        0x99 => "Publish refused with packet id %hu: Payload format indicator is invalid.",
+        0x92 => "Publish refused with packet id %hu: Packet identifier invalid.",
+        // The default logs nothing; it answers `MQTTBadResponse` instead, which
+        // is [`validate_ack_reason_code`].
+        _ => "",
+    }
+}
+
 /// `logAckResponse`: the reason codes a publish acknowledgement may carry.
 ///
 /// The C's function exists to log, and returns `MQTTBadResponse` for anything

@@ -1002,6 +1002,38 @@ original pair differed only in their topic, which the callback log does not
 record, so a loop that handled the first one twice looked right. Giving them
 different packet identifiers made three poisons fail at once.
 
+## Conformance (2026-09-19) — the last two functions
+
+| quantity | value | method |
+|---|---|---|
+| functions remade | **218 / 218, 100 %** | `python oracle/coverage.py --check`, which reads the pinned source and fails if `REMADE.txt` names a function it does not have. |
+| what proves these two | **the pinned SOURCE TEXT, not a run** | `oracle/logtable.py` parses both switches into `oracle/logtable.trace`; `tests/logtable.rs` sweeps all 256 codes in each direction against it. |
+| poison rows | **5 introduced, 5 caught** | a tidied message, an off-by-one code, a changed default, a dropped code, and two swapped. |
+
+**These are the only two functions in the library with no observable
+behaviour.** `logConnackResponse` is a `static void` and `logAckResponse`'s
+status half is [`validate_ack_reason_code`], already proven by the
+acknowledgement differential's 256-value sweep; what is left of both is a
+mapping from reason codes to strings that go to `LogError` and `LogDebug` —
+which `core_mqtt_config_defaults.h` defines as nothing.
+
+**So the oracle is the source text, and that is said out loud.** Turning the
+logging on would mean compiling the pinned C with a configuration it does not
+ship, which every other arm of this oracle refuses to do. A script that reads
+the switch is a weaker instrument than a differential; it is checked in, it is
+re-run when the pin moves, and it is labelled as what it is.
+
+**And the strings are RETURNED rather than logged**, which is the only honest
+shape for a crate with no logger — and strictly more useful, because the C's
+message is unreachable unless the application defines the macro.
+
+**Two of the C's messages are wrong and both are transcribed.** A publish
+acknowledgement's `0x80` is Unspecified Error and its message reads "Connection
+rate exceeded", which is a CONNACK's `0x9F`; and `"Packet too large ."` has a
+space before the full stop. A transcription is not a correction, and pinning the
+defects means an upstream fix shows up as a disagreement rather than being
+absorbed.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -1017,7 +1049,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 199 passed, 0 failed (99 unit, 15 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client, 3 send, 4 outgoing, 4 session, 4 loop) |
+| `cargo test -p rusty_rtos_mqtt-core` | 203 passed, 0 failed (99 unit, 15 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client, 3 send, 4 outgoing, 4 session, 4 loop, 4 logtable) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -1036,9 +1068,9 @@ the only place the number comes from; `--check` fails if the list names a
 function the pinned source does not have.
 
 ```
-functions      216 / 218    99.1 %
-function lines 12901 / 13066  98.7 %
-all lines      12901 / 15643  82.5 %   (2577 lines are preamble and cannot be remade)
+functions      218 / 218   100.0 %
+function lines 13066 / 13066 100.0 %
+all lines      13066 / 15643  83.5 %   (2577 lines are preamble and cannot be remade)
 ```
 
 **The headline is the first line.** A function is the unit that can be
@@ -1050,16 +1082,19 @@ figure cannot reach 100 % however much is done.
 | file | functions remade |
 |---|---|
 | `core_mqtt_state.c` | 19 / 19 |
-| `core_mqtt_serializer.c` | 68 / 70 |
+| `core_mqtt_serializer.c` | 70 / 70 |
 | `core_mqtt_serializer_private.c` | 15 / 15 |
 | `core_mqtt_prop_serializer.c` | 23 / 23 |
 | `core_mqtt_prop_deserializer.c` | 31 / 31 |
 | `core_mqtt.c` | 60 / 60 |
 
-The two outstanding in `core_mqtt_serializer.c` are `logConnackResponse` and
-`logAckResponse`: `static void`s of `LogError` calls with no observable
-behaviour. They are counted as not written rather than claimed, because a remake
-that produces no log line has not remade a logger. `core_mqtt.c` is finished.
+Every file is finished. The last two, `logConnackResponse` and `logAckResponse`
+in `core_mqtt_serializer.c`, were held back for several slices under the rule
+that a remake producing no log line has not remade a logger — and then remade
+as tables that RETURN their strings, proven against the pinned source text
+rather than against a run, because the C's logging is compiled out by default
+and turning it on would mean building the pin with a configuration it does not
+ship. The instrument is named for what it is in `tests/logtable.rs`.
 
 **This replaces the earlier figure, which was wrong.** Until 2026-09-18 this
 table divided a hand-maintained sum of per-slice line counts by all 15,643

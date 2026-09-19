@@ -102,11 +102,13 @@ lives.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps: 2 functions, and `core_mqtt.c` is finished.** What is left is
-`core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
-does not have. Everything else is remade: this crate can build and read every
-MQTT packet, off a socket or out of a buffer, and assemble, check and walk back
-every property section either end may send. It cannot yet run a connection.
+**No known gaps: 218 of 218 functions, measured by
+[`oracle/coverage.py`](oracle/coverage.py) against the pinned source.** This
+crate builds and reads every MQTT packet, off a socket or out of a buffer;
+assembles, checks and walks back every property section either end may send;
+opens a connection, runs its receive loop, answers its acknowledgements and
+keeps it alive. What is left is not coreMQTT but the things around it — its
+CMock vectors, and a real broker.
 
 
 Part of **Kairos**, the Remade-With-Rust programme that rebuilds the FreeRTOS
@@ -141,8 +143,8 @@ library's TWO header readers side by side, 73 lines across the MQTT 5 property
 builders, 55 across the property reader, 109 across topic matching and 41
 across the client context, 29 across the send plumbing, 59 across the outgoing
 packets, 39 across opening a connection and 52 across the receive loop — all at
-the pinned v5.0.2. **216 of coreMQTT's 218 functions, 99.1 %**, counted by
-`oracle/coverage.py` from the pinned source. 199 tests. **This crate reads every packet a broker can send, off a socket or
+the pinned v5.0.2. **218 of coreMQTT's 218 functions, 100 %**, counted by
+`oracle/coverage.py` from the pinned source. 203 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1615,6 +1617,33 @@ connection never pings however stale its transmit time is —
 `keepalive-rx-timeout` sends a PINGREQ and
 `keepalive-not-checked-when-busy`, with the same stale time and one packet to
 read, does not.
+
+## The last two functions, and the only ones with nothing to run
+
+**`logConnackResponse` and `logAckResponse` are 100 % of what is left**, and
+they are the two whose behaviour a differential cannot see: every branch of both
+calls `LogError` or `LogDebug`, which coreMQTT's shipped config defines as
+**nothing**. On a stock build they are switches that do not do anything.
+
+Turning the logging on would mean compiling the pinned C with a configuration it
+does not ship, which is the one thing every other arm of this oracle refuses to
+do. So the oracle for these two is the pinned **source text**:
+`oracle/logtable.py` parses both switches out of it into
+`oracle/logtable.trace`, and `tests/logtable.rs` sweeps all 256 reason codes
+against that in each direction. It is a weaker instrument than a differential
+and it is named as one — what it proves is exactly what these two functions
+contain.
+
+The strings are **returned** rather than logged, which is the only honest shape
+for a crate with no logger, and strictly more useful: the C's message is
+unreachable unless the application defines the macro.
+
+Two of them are wrong and are transcribed anyway. A publish acknowledgement's
+`0x80` is Unspecified Error and its message reads "Connection rate exceeded",
+which belongs to a CONNACK's `0x9F`; and `"Packet too large ."` has a space
+before the full stop. **A transcription is not a correction** — both are pinned,
+so that if upstream fixes them the extractor and the test disagree and the fix
+is noticed rather than silently absorbed.
 
 ## The gate
 

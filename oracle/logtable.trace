@@ -1,0 +1,38 @@
+geometry
+logConnackResponse rows=23
+logConnackResponse 0x00 MQTT_REASON_CONNACK_SUCCESS Connection accepted.
+logConnackResponse 0x80 MQTT_REASON_CONNACK_UNSPECIFIED_ERROR Connection refused: Unspecified error
+logConnackResponse 0x81 MQTT_REASON_CONNACK_MALFORMED_PACKET Connection refused: Malformed Packet.
+logConnackResponse 0x82 MQTT_REASON_CONNACK_PROTOCOL_ERROR Connection refused: Protocol Error.
+logConnackResponse 0x83 MQTT_REASON_CONNACK_IMPLEMENTATION_SPECIFIC_ERROR Connection refused: Implementation specific error.
+logConnackResponse 0x84 MQTT_REASON_CONNACK_UNSUPPORTED_PROTOCOL_VERSION Connection refused: Unsupported Protocol Version.
+logConnackResponse 0x85 MQTT_REASON_CONNACK_CLIENT_IDENTIFIER_NOT_VALID Connection refused: Client Identifier not valid.
+logConnackResponse 0x86 MQTT_REASON_CONNACK_BAD_USER_NAME_OR_PASSWORD Connection refused: Bad User Name or Password.
+logConnackResponse 0x87 MQTT_REASON_CONNACK_NOT_AUTHORIZED Connection refused: Not authorized.
+logConnackResponse 0x88 MQTT_REASON_CONNACK_SERVER_UNAVAILABLE Connection refused: Server unavailable.
+logConnackResponse 0x89 MQTT_REASON_CONNACK_SERVER_BUSY Connection refused: Server busy.
+logConnackResponse 0x8a MQTT_REASON_CONNACK_BANNED Connection refused: Banned.
+logConnackResponse 0x8c MQTT_REASON_CONNACK_BAD_AUTHENTICATION_METHOD Connection refused: Bad authentication method.
+logConnackResponse 0x90 MQTT_REASON_CONNACK_TOPIC_NAME_INVALID Connection refused: Topic Name invalid.
+logConnackResponse 0x95 MQTT_REASON_CONNACK_PACKET_TOO_LARGE Connection refused: Packet too large .
+logConnackResponse 0x97 MQTT_REASON_CONNACK_QUOTA_EXCEEDED Connection refused: Quota exceeded.
+logConnackResponse 0x99 MQTT_REASON_CONNACK_PAYLOAD_FORMAT_INVALID Connection refused: Payload format invalid.
+logConnackResponse 0x9a MQTT_REASON_CONNACK_RETAIN_NOT_SUPPORTED Connection refused: Retain not supported.
+logConnackResponse 0x9b MQTT_REASON_CONNACK_QOS_NOT_SUPPORTED Connection refused: QoS not supported.
+logConnackResponse 0x9c MQTT_REASON_CONNACK_USE_ANOTHER_SERVER Connection refused: Use another server.
+logConnackResponse 0x9d MQTT_REASON_CONNACK_SERVER_MOVED Connection refused: Server moved.
+logConnackResponse 0x9f MQTT_REASON_CONNACK_CONNECTION_RATE_EXCEEDED Connection refused: Connection rate exceeded.
+logConnackResponse - DEFAULT Invalid reason code received.
+logAckResponse rows=11
+logAckResponse 0x00 MQTT_REASON_PUBACK_SUCCESS -
+logAckResponse 0x10 MQTT_REASON_PUBACK_NO_MATCHING_SUBSCRIBERS Publish accepted with packet id %hu: No matching subscribers.
+logAckResponse 0x80 MQTT_REASON_PUBACK_UNSPECIFIED_ERROR Publish refused with packet id %hu: Connection rate exceeded.
+logAckResponse 0x83 MQTT_REASON_PUBACK_IMPLEMENTATION_SPECIFIC_ERROR Publish refused with packet id %hu:  The PUBLISH is valid but the receiver is not willing to accept it.
+logAckResponse 0x87 MQTT_REASON_PUBACK_NOT_AUTHORIZED Publish refused with packet id %hu: The PUBLISH is not authorized.
+logAckResponse 0x90 MQTT_REASON_PUBACK_TOPIC_NAME_INVALID Publish refused with packet id %hu: Topic Name not accepted.
+logAckResponse 0x91 MQTT_REASON_PUBACK_PACKET_IDENTIFIER_IN_USE Publish refused with packet id %hu: The Packet Identifier is already in use. 
+logAckResponse 0x97 MQTT_REASON_PUBACK_QUOTA_EXCEEDED Publish refused with packet id %hu: Quota exceeded.
+logAckResponse 0x99 MQTT_REASON_PUBACK_PAYLOAD_FORMAT_INVALID Publish refused with packet id %hu: Payload format indicator is invalid.
+logAckResponse 0x92 MQTT_REASON_PUBREL_PACKET_IDENTIFIER_NOT_FOUND Publish refused with packet id %hu: Packet identifier invalid.
+logAckResponse - DEFAULT -
+end
