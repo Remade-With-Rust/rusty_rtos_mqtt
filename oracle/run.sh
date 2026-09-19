@@ -237,3 +237,14 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/client_driver" > "$here/client.trace"
 echo "wrote $(wc -l < "$here/client.trace") lines to $here/client.trace"
+
+# The send-plumbing differential's C arm: a SCRIPTED transport and clock, and
+# the two functions that stand between the library and the network.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/send_driver" \
+   "$core" "$src" "$ser" "$priv" "$props" "$propd" "$here/send_driver.c"
+
+"$here/send_driver" > "$here/send.trace"
+echo "wrote $(wc -l < "$here/send.trace") lines to $here/send.trace"

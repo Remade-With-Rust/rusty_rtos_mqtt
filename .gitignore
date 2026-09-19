@@ -67,3 +67,6 @@ oracle/topic_driver.pdb
 oracle/client_driver
 oracle/client_driver.exe
 oracle/client_driver.pdb
+oracle/send_driver
+oracle/send_driver.exe
+oracle/send_driver.pdb

@@ -779,6 +779,57 @@ whole unsubscribe short-circuit changed no answer. And a filter of exactly
 `$share/` is **not** a shared subscription, because the C tests `length > 7`
 before comparing seven bytes; nothing else in the trace told `> 7` from `>= 7`.
 
+## Conformance (2026-09-18) — the send plumbing
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **28 / 28** | `cargo test -p rusty_rtos_mqtt-core --test send`. C arm: `oracle/send_driver.c` driving `core_mqtt.c` verbatim from v5.0.2 at `04845c6a`. |
+| what is compared per case | **the status, the CALL COUNT, the log of every offer and its answer, the bytes that arrived, and the context afterwards** | a transport chooses how much of each offer it takes, so the sender's offsets are driven from outside the library. |
+| named cases | **12 buffer, 11 vector, 3 clock origins** | every way a transport can answer, at every position in a packet. |
+| poison rows | **12 introduced, 12 caught** | two of them by HANGING rather than failing. |
+
+**This slice is the harness.** Everything left in `core_mqtt.c` talks to a
+transport, so the instrument comes first: a scripted transport whose every call
+is logged and a scripted clock. `log=2:1,1:1` is a sender that pushed two bytes
+in two calls with the second offer correctly advanced; `log=2:1,2:1` is one that
+sent the first byte twice. Both put two bytes on the wire.
+
+**A wrong elapsed-time function does not answer wrongly — it never answers.**
+`calculateElapsedTime` is `later - start` on two `uint32_t`, correct across the
+32-bit wrap because both sides are unsigned. Replacing it with a saturating
+subtraction makes a client that has been up for 49.7 days report zero elapsed
+for ever, and a send against a busy transport never returns. So that poison is
+caught in the strongest sense **and the differential cannot see it**, because a
+hang is not a failing assertion: it is pinned by
+`the_elapsed_time_wraps_and_a_guarded_subtraction_would_never_time_out`, and the
+trace drives the clock from zero, from one step below the wrap and from the wrap
+itself and requires all three answers identical.
+
+A second poison hangs the same way — dropping the whole-vector advance in the
+vector sender — and the poison runner now bounds every run and kills the process
+tree, reporting `HANGS` as its own verdict. **A differential harness has to
+survive the code it is breaking.**
+
+**The guard, twenty-sixth shape: a sender differential needs a case where the
+transport takes PART of a vector.** Counting bytes is not enough — a sender that
+re-offered a whole vector after a partial take would put the same bytes on the
+wire and log a different sequence. `stops-on-a-boundary` and `stops-mid-vector`
+are the two branches of the advance, and both are asserted.
+
+**Three poisons needed cases first, and all three gaps had behaviour behind
+them.** A clock that actually moves, or the recorded transmit time is always
+zero and dropping it changes nothing. A step that lands the elapsed time
+**exactly** on the timeout, or `>=` and `>` agree. And a context whose transport
+has already failed: `MQTT_Disconnect` refuses only `NotConnected`, so a dying
+connection is still allowed to try the one packet it might manage — which is
+right, and which nothing tested until there was a case for it.
+
+**And one case removed rather than added.** A frozen clock with a transport that
+never accepts loops for ever *by construction*, and coreMQTT's own config header
+says that if the time function is a no-op then `MQTT_SEND_TIMEOUT_MS` must be
+zero. That is a documented precondition, not a defect, and **a differential case
+that cannot terminate is not a case.**
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -794,7 +845,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 178 passed, 0 failed (94 unit, 14 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client) |
+| `cargo test -p rusty_rtos_mqtt-core` | 183 passed, 0 failed (95 unit, 15 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client, 3 send) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -813,9 +864,9 @@ the only place the number comes from; `--check` fails if the list names a
 function the pinned source does not have.
 
 ```
-functions      173 / 218    79.4 %
-function lines  9198 / 13066  70.4 %
-all lines       9198 / 15643  58.8 %   (2577 lines are preamble and cannot be remade)
+functions      179 / 218    82.1 %
+function lines  9683 / 13066  74.1 %
+all lines       9683 / 15643  61.9 %   (2577 lines are preamble and cannot be remade)
 ```
 
 **The headline is the first line.** A function is the unit that can be
@@ -831,14 +882,14 @@ figure cannot reach 100 % however much is done.
 | `core_mqtt_serializer_private.c` | 15 / 15 |
 | `core_mqtt_prop_serializer.c` | 23 / 23 |
 | `core_mqtt_prop_deserializer.c` | 31 / 31 |
-| `core_mqtt.c` | 17 / 60 |
+| `core_mqtt.c` | 23 / 60 |
 
 The two outstanding in `core_mqtt_serializer.c` are `logConnackResponse` and
 `logAckResponse`: `static void`s of `LogError` calls with no observable
 behaviour. They are counted as not written rather than claimed, because a remake
-that produces no log line has not remade a logger. The 43 outstanding in
-`core_mqtt.c` are the part that needs a transport — the send paths, the receive
-loop, the acknowledgement handling and `MQTT_Connect`.
+that produces no log line has not remade a logger. The 37 outstanding in
+`core_mqtt.c` are the outgoing packets, the receive loop, the acknowledgement
+handling and `MQTT_Connect` — all of which now have a harness to run on.
 
 **This replaces the earlier figure, which was wrong.** Until 2026-09-18 this
 table divided a hand-maintained sum of per-slice line counts by all 15,643

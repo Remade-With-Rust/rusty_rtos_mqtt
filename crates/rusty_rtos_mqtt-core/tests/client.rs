@@ -43,6 +43,8 @@ fn status(result: Result<(), ClientError>) -> &'static str {
         Err(ClientError::BadParameter) => "BadParameter",
         Err(ClientError::NotConnected) => "StatusNotConnected",
         Err(ClientError::DisconnectPending) => "StatusDisconnectPending",
+        // No case in this trace sends, so this one cannot arise here.
+        Err(ClientError::SendFailed) => "SendFailed",
     }
 }
 

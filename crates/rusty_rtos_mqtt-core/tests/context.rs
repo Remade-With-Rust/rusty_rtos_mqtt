@@ -36,7 +36,7 @@ use rusty_rtos_mqtt_core::context::{
 };
 use rusty_rtos_mqtt_core::header::{HeaderError, process_incoming_packet_type_and_length};
 use rusty_rtos_mqtt_core::outpublish::OutgoingPublish;
-use rusty_rtos_mqtt_core::reader::{ReadError, Received, Transport, read_header};
+use rusty_rtos_mqtt_core::reader::{ReadError, Received, Sent, Transport, read_header};
 use rusty_rtos_mqtt_core::state::QoS;
 use rusty_rtos_mqtt_core::validate::{ValidateError, validate_publish_params};
 
@@ -51,6 +51,12 @@ struct Arrived<'a> {
 }
 
 impl Transport for Arrived<'_> {
+    /// This differential only reads. A transport asked to send here is a
+    /// case driving the wrong function.
+    fn send(&mut self, _bytes: &[u8]) -> Sent {
+        panic!("the context differential asked the transport to send");
+    }
+
     fn recv_one(&mut self) -> Received {
         self.calls += 1;
 

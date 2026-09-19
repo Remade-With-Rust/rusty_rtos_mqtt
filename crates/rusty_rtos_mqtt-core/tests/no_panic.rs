@@ -617,3 +617,99 @@ fn arbitrary_topic_filters_never_panic() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// The senders.
+//
+// A transport chooses how much of each offer it takes, so the sender's offsets
+// are driven by something outside the library. The invariant is not about
+// panics: it is that the bytes which reach the wire are the packet, in order,
+// once each.
+
+use rusty_rtos_mqtt_core::client::{Clock, ConnectionStatus};
+use rusty_rtos_mqtt_core::reader::{Received, Sent, Transport as WireTransport};
+
+struct Chaos {
+    rng: Lcg,
+    sent: Vec<u8>,
+    calls: usize,
+}
+
+impl WireTransport for Chaos {
+    fn recv_one(&mut self) -> Received {
+        Received::Failed
+    }
+
+    fn send(&mut self, bytes: &[u8]) -> Sent {
+        self.calls += 1;
+
+        // Give up eventually, so a sender that cannot make progress is a
+        // failing assertion rather than a hung test.
+        if self.calls > 64 {
+            return Sent::Failed;
+        }
+
+        match self.rng.below(4) {
+            0 => Sent::Nothing,
+            1 => Sent::Failed,
+            _ => {
+                let take = (self.rng.below(bytes.len() as u32 + 1)) as usize;
+
+                if take == 0 {
+                    Sent::Nothing
+                } else {
+                    self.sent.extend_from_slice(&bytes[..take]);
+                    Sent::Bytes(take)
+                }
+            }
+        }
+    }
+}
+
+struct Stepping(u32);
+
+impl Clock for Stepping {
+    fn now_ms(&mut self) -> u32 {
+        self.0 = self.0.wrapping_add(1);
+        self.0
+    }
+}
+
+/// Whatever a transport does with an offer, the wire sees a prefix of the
+/// packet.
+#[test]
+fn a_transport_that_takes_what_it_likes_still_sees_the_packet_in_order() {
+    for seed in 1..400u32 {
+        let mut transport = Chaos {
+            rng: Lcg::new(seed),
+            sent: Vec::new(),
+            calls: 0,
+        };
+        let mut clock = Stepping(seed);
+
+        let mut buffer = [0u8; 64];
+        let mut client = MqttContext::new(&mut buffer);
+        client.connect_status = ConnectionStatus::Connected;
+
+        let result = client.ping(&mut transport, &mut clock);
+
+        // A PINGREQ is `c0 00`, so whatever arrived must be a prefix of it --
+        // never a byte repeated, never one out of order.
+        let expected: &[u8] = &[0xC0, 0x00];
+        assert!(
+            transport.sent.len() <= expected.len(),
+            "seed {seed} put {} bytes on the wire for a two-byte packet",
+            transport.sent.len()
+        );
+        assert_eq!(
+            transport.sent[..],
+            expected[..transport.sent.len()],
+            "seed {seed} sent the wrong bytes"
+        );
+
+        // And success means all of it arrived.
+        if result.is_ok() {
+            assert_eq!(transport.sent, expected, "seed {seed} succeeded partially");
+        }
+    }
+}

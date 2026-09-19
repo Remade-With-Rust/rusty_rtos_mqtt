@@ -69,10 +69,38 @@ pub enum Received {
     Failed,
 }
 
-/// A source of bytes — a socket, a test script, a ring buffer.
+/// What a transport did with the bytes it was offered.
+///
+/// The C's `send` returns an `int32_t`: a positive count is that many bytes
+/// accepted, zero is "not now", and a negative is a failure. Those are the
+/// three the senders distinguish, so they are the three here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sent {
+    /// This many bytes were accepted. May be fewer than offered, and the
+    /// sender must offer the rest from the right offset.
+    Bytes(usize),
+    /// None were accepted, and nothing is wrong. Try again.
+    Nothing,
+    /// The transport failed.
+    Failed,
+}
+
+/// A socket, a test script, a ring buffer: something bytes go to and come from.
+///
+/// The C's `TransportInterface_t` carries `recv`, `send`, an optional `writev`
+/// and an implementation-defined context. The context is whatever implements
+/// this trait, and `writev` is an optimisation a later slice will offer as a
+/// provided method — every caller of it in coreMQTT falls back to `send` when
+/// it is absent, which is the path this crate proves first.
 pub trait Transport {
     /// Ask for exactly one byte.
     fn recv_one(&mut self) -> Received;
+
+    /// Offer `bytes`, and say how many were taken.
+    ///
+    /// A transport may take fewer than it is offered; taking MORE than it is
+    /// offered is a bug in the transport, and the C asserts on it.
+    fn send(&mut self, bytes: &[u8]) -> Sent;
 }
 
 /// A packet's fixed header, as far as the transport has read it.
@@ -227,6 +255,12 @@ mod tests {
     }
 
     impl Transport for Script {
+        /// These unit tests only read. A script asked to send is a test
+        /// driving the wrong function, so it says so.
+        fn send(&mut self, _bytes: &[u8]) -> Sent {
+            panic!("a reader unit test asked the transport to send");
+        }
+
         fn recv_one(&mut self) -> Received {
             self.calls += 1;
             let step = self.steps.get(self.at).copied();

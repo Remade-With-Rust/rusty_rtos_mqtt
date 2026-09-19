@@ -86,12 +86,15 @@ lives.
 - **Proven**: the client context and the subscription validators — where only
   the last entry in a list turns out to decide whether the list is valid, and a
   topic filter is searched past its length.
+- **Proven**: the send plumbing, PINGREQ and DISCONNECT, against a **scripted
+  transport** that takes what it likes and a scripted clock — the harness the
+  rest of the connection machine runs on.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps: 45 functions, all but two of them in `core_mqtt.c`.** What is
-left is the part that needs a transport — the send paths, the receive loop, the
-acknowledgement handling and `MQTT_Connect` — and
+**Known gaps: 39 functions, all but two of them in `core_mqtt.c`.** What is
+left is the outgoing packets, the receive loop, the acknowledgement handling and
+`MQTT_Connect` — and
 `core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
 does not have. Everything else is remade: this crate can build and read every
 MQTT packet, off a socket or out of a buffer, and assemble, check and walk back
@@ -128,9 +131,9 @@ the transport reader CALL FOR CALL, 94 lines across the six outgoing property
 validators — 36 of them sweeps — 56 lines finishing that file, which run the
 library's TWO header readers side by side, 73 lines across the MQTT 5 property
 builders, 55 across the property reader, 109 across topic matching and 41
-across the client context — all at the pinned v5.0.2. **173 of coreMQTT's 218
-functions, 79.4 %**, counted by `oracle/coverage.py` from the pinned source.
-178 tests. **This crate reads every packet a broker can send, off a socket or
+across the client context and 28 across the send plumbing — all at the pinned
+v5.0.2. **179 of coreMQTT's 218 functions, 82.1 %**, counted by
+`oracle/coverage.py` from the pinned source. 183 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1428,6 +1431,48 @@ them: an UNSUBSCRIBE ignores every subscription option (so a shared subscription
 a SUBSCRIBE refuses goes through unexamined), and a filter of exactly `$share/`
 is **not** a shared subscription, because the C tests `length > 7` before
 comparing seven bytes.
+
+## The send plumbing
+
+**28 trace lines agree with `core_mqtt.c`** — and this slice builds the
+instrument the rest of that file needs: a **scripted transport** whose every
+call is logged, and a **scripted clock**.
+
+A transport may take all the bytes it is offered, some of them, none, or fail,
+and each answer puts the sender round its loop again with a different offset. So
+what it is **offered on every call** is as much of the behaviour as how many
+bytes arrive:
+
+```
+log=2:1,1:1     two bytes in two calls, the second offer correctly advanced
+log=2:1,2:1     the same two bytes, with the first one sent twice
+```
+
+Both put two bytes on the wire. Only one is right, and only the log tells them
+apart. Same shape as the transport reader, pointed the other way.
+
+### A wrong clock does not answer wrongly — it never answers
+
+`calculateElapsedTime` is `later - start` on two `uint32_t`, and it is right
+across the 32-bit wrap **because** both sides are unsigned. Replacing that with
+a saturating subtraction — which looks like care — makes a client that has been
+up for 49.7 days report zero elapsed for ever, so a send against a busy
+transport never returns.
+
+That poison is caught in the strongest possible sense and the differential
+cannot see it, because a hang is not a failing assertion. It is pinned by a unit
+test on the arithmetic instead, and the trace drives the clock from zero, from
+one step below the wrap, and from the wrap itself, and requires all three
+answers to be identical.
+
+### Poison-proven on twelve behaviours, twelve caught — two by hanging
+
+Three needed cases before they would fire, and all three gaps had real behaviour
+behind them: a clock that actually moves (or the recorded transmit time is
+always zero), a step that lands elapsed time **exactly** on the timeout (or
+`>=` and `>` agree), and a context whose transport has already failed — because
+`MQTT_Disconnect` refuses only `NotConnected`, and lets a dying connection try
+to send the one packet it might still manage.
 
 ## The gate
 

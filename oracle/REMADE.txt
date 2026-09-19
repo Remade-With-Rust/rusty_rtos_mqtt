@@ -171,8 +171,9 @@ getPropUint32
 getPropUint8
 getPropUtf8
 
-# --- core_mqtt.c (17 of 60) ---
+# --- core_mqtt.c (23 of 60) ---
 MQTT_CheckConnectStatus
+MQTT_Disconnect
 MQTT_GetPacketId
 MQTT_GetPacketTypeString
 MQTT_GetSubAckStatusCodes
@@ -180,11 +181,16 @@ MQTT_GetUnsubAckStatusCodes
 MQTT_Init
 MQTT_InitStatefulQoS
 MQTT_MatchTopic
+MQTT_Ping
 MQTT_Status_strerror
+calculateElapsedTime
 checkWildcardSubscriptions
 matchEndWildcardsSpecialCases
 matchTopicFilter
 matchWildcards
+sendBuffer
+sendDisconnectWithoutCopy
+sendMessageVector
 validatePublishParams
 validateSharedSubscriptions
 validateSubscribeUnsubscribeParams

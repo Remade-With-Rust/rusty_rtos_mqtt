@@ -123,7 +123,7 @@ pub use outpublish::{
 };
 pub use property::{PropertyError, PropertyReader, decode_variable_length, encode_string};
 pub use publish::{PublishError, PublishInfo, deserialize_publish};
-pub use reader::{IncomingHeader, ReadError, Received, Transport, read_header};
+pub use reader::{IncomingHeader, ReadError, Received, Sent, Transport, read_header};
 pub use size::{
     ListPacket, PINGREQ_PACKET_SIZE, PacketSize, SizeError, ack_packet_size, list_packet_size,
     subscribe_packet_size, unsubscribe_packet_size,

@@ -38,6 +38,7 @@
 //! [`builder`](crate::builder)'s.
 
 use crate::context::ConnectionProperties;
+use crate::reader::{Sent, Transport};
 use crate::state::QoS;
 use crate::validate::{ValidateError, validate_subscribe_properties};
 
@@ -52,6 +53,12 @@ pub enum ClientError {
     /// `MQTTStatusDisconnectPending`: the transport has failed and the
     /// connection is on its way down.
     DisconnectPending,
+    /// `MQTTSendFailed`: the whole packet did not reach the transport.
+    ///
+    /// A partial send is this too. Half an MQTT packet on a stream is not
+    /// something a broker can recover from, so there is no "sent some of it"
+    /// answer to give a caller.
+    SendFailed,
 }
 
 /// `MQTTConnectionStatus_t`.
@@ -118,6 +125,14 @@ pub struct MqttContext<'a> {
     outgoing_records: usize,
     incoming_records: usize,
     ack_properties: usize,
+    /// When the last byte went out, by the caller's clock.
+    last_packet_tx_time: u32,
+    /// When the outstanding PINGREQ was sent.
+    ping_req_send_time: u32,
+    /// Whether a PINGRESP is owed.
+    waiting_for_ping_resp: bool,
+    /// How far into the network buffer the receive path has got.
+    index: usize,
 }
 
 impl<'a> MqttContext<'a> {
@@ -142,7 +157,29 @@ impl<'a> MqttContext<'a> {
             outgoing_records: 0,
             incoming_records: 0,
             ack_properties: 0,
+            last_packet_tx_time: 0,
+            ping_req_send_time: 0,
+            waiting_for_ping_resp: false,
+            index: 0,
         }
+    }
+
+    /// When the last byte went out, by the caller's clock.
+    #[must_use]
+    pub const fn last_packet_tx_time(&self) -> u32 {
+        self.last_packet_tx_time
+    }
+
+    /// When the outstanding PINGREQ went out.
+    #[must_use]
+    pub const fn ping_req_send_time(&self) -> u32 {
+        self.ping_req_send_time
+    }
+
+    /// Whether the broker owes a PINGRESP.
+    #[must_use]
+    pub const fn waiting_for_ping_resp(&self) -> bool {
+        self.waiting_for_ping_resp
     }
 
     /// How big the network buffer is.
@@ -459,6 +496,306 @@ impl From<ValidateError> for ClientError {
     }
 }
 
+/// How long a send may take before the library gives up.
+///
+/// `MQTT_SEND_TIMEOUT_MS`, and the default is 20 seconds. coreMQTT's config
+/// header is explicit that **if the clock is a no-op this must be zero**: with
+/// a frozen clock and a transport that never accepts a byte, the sender loops
+/// for ever by construction. That is a precondition, not a defect, and it is
+/// why no case in `oracle/send.trace` has a frozen clock.
+pub const SEND_TIMEOUT_MS: u32 = 20_000;
+
+/// A source of milliseconds.
+///
+/// `MQTTGetCurrentTimeFunc_t`. It need not be an absolute time and it need not
+/// start anywhere in particular; only differences are used, and those are taken
+/// with wrapping subtraction so they are right across the 32-bit wrap.
+pub trait Clock {
+    /// Milliseconds, from any origin.
+    fn now_ms(&mut self) -> u32;
+}
+
+/// How much of a buffer went out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendOutcome {
+    /// This many bytes were accepted. Fewer than asked means the send timed
+    /// out part-way, which every caller treats as a failure.
+    Sent(usize),
+    /// The transport failed.
+    Failed,
+}
+
+/// `calculateElapsedTime`: `later - start`, wrapping.
+///
+/// One line in the C, and the only reason it is right across the 32-bit wrap is
+/// that both sides are unsigned. A signed subtraction, or a `later > start`
+/// guard "for safety", would make a client that has been up for 49.7 days stop
+/// timing out. `oracle/send.trace` drives the clock over the wrap for that
+/// reason, and the three `elapsed` lines are identical.
+#[must_use]
+pub const fn elapsed_ms(later: u32, start: u32) -> u32 {
+    later.wrapping_sub(start)
+}
+
+impl<'a> MqttContext<'a> {
+    /// `sendBuffer`: push one buffer, however many calls that takes.
+    ///
+    /// The loop is the interesting part. A transport may take everything, some
+    /// of it, or none of it, and each answer puts the sender round again with a
+    /// different offset — so what it OFFERS on each call is as much of the
+    /// behaviour as how many bytes arrive, which is why the differential logs
+    /// every call.
+    fn send_buffer<T: Transport, C: Clock>(
+        &mut self,
+        transport: &mut T,
+        clock: &mut C,
+        buffer: &[u8],
+    ) -> SendOutcome {
+        let total = buffer.len();
+        let start = clock.now_ms();
+        let mut sent = 0usize;
+
+        while sent < total {
+            let Some(remaining) = buffer.get(sent..) else {
+                return SendOutcome::Failed;
+            };
+
+            match transport.send(remaining) {
+                Sent::Bytes(count) => {
+                    // A transport that took more than it was offered is a bug
+                    // in the transport; the C asserts, and this clamps, because
+                    // a library that must not panic cannot assert.
+                    sent = sent.saturating_add(count.min(remaining.len()));
+                    self.last_packet_tx_time = clock.now_ms();
+                }
+
+                Sent::Nothing => {}
+
+                Sent::Failed => {
+                    // The C sets the status here and then leaves the loop on
+                    // its `>= 0` condition -- but not before running the
+                    // timeout check below, which reads the clock once more.
+                    if self.connect_status == ConnectionStatus::Connected {
+                        self.connect_status = ConnectionStatus::DisconnectPending;
+                    }
+
+                    let _ = clock.now_ms();
+                    return SendOutcome::Failed;
+                }
+            }
+
+            if elapsed_ms(clock.now_ms(), start) >= SEND_TIMEOUT_MS {
+                break;
+            }
+        }
+
+        SendOutcome::Sent(sent)
+    }
+
+    /// `sendMessageVector`: push an array of buffers.
+    ///
+    /// The same loop with one more thing to get wrong: when a transport takes
+    /// part of a vector, the next offer must start inside it. The C advances a
+    /// whole-vector iterator first and then adjusts `iov_base` and `iov_len`
+    /// for the partial one; `stops-mid-vector` in the trace is the case that
+    /// separates a sender that does from one that re-offers the whole vector.
+    ///
+    /// `writev` is not used: this arm takes the per-vector `send` path, which
+    /// is the one coreMQTT falls back to and the one the trace drives.
+    fn send_vectors<T: Transport, C: Clock>(
+        &mut self,
+        transport: &mut T,
+        clock: &mut C,
+        vectors: &mut [&[u8]],
+    ) -> SendOutcome {
+        let total: usize = vectors.iter().map(|part| part.len()).sum();
+        let start = clock.now_ms();
+        let mut sent = 0usize;
+        let mut at = 0usize;
+
+        while sent < total {
+            let Some(current) = vectors.get(at).copied() else {
+                break;
+            };
+
+            let mut taken = match transport.send(current) {
+                Sent::Bytes(count) => {
+                    let count = count.min(current.len());
+                    sent = sent.saturating_add(count);
+                    self.last_packet_tx_time = clock.now_ms();
+                    count
+                }
+
+                Sent::Nothing => 0,
+
+                Sent::Failed => {
+                    if self.connect_status == ConnectionStatus::Connected {
+                        self.connect_status = ConnectionStatus::DisconnectPending;
+                    }
+
+                    let _ = clock.now_ms();
+                    return SendOutcome::Failed;
+                }
+            };
+
+            // Step over every vector this call finished.
+            while at < vectors.len() {
+                let Some(part) = vectors.get(at) else { break };
+
+                if taken < part.len() {
+                    break;
+                }
+
+                taken = taken.saturating_sub(part.len());
+                at = at.saturating_add(1);
+            }
+
+            // And advance inside the one it did not.
+            if taken > 0 {
+                if let Some(part) = vectors.get_mut(at) {
+                    if let Some(rest) = part.get(taken..) {
+                        *part = rest;
+                    }
+                }
+            }
+
+            if elapsed_ms(clock.now_ms(), start) >= SEND_TIMEOUT_MS {
+                break;
+            }
+        }
+
+        SendOutcome::Sent(sent)
+    }
+
+    /// `MQTT_Ping`: a PINGREQ, which is two fixed bytes.
+    ///
+    /// The one packet coreMQTT sends with `sendBuffer` rather than the vector
+    /// sender, "as the Ping packet does not have numerous fields which need to
+    /// be copied from the user provided buffers".
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::NotConnected`] or [`ClientError::DisconnectPending`] if
+    /// there is no connection, and [`ClientError::SendFailed`] if the whole
+    /// packet did not go.
+    pub fn ping<T: Transport, C: Clock>(
+        &mut self,
+        transport: &mut T,
+        clock: &mut C,
+    ) -> Result<(), ClientError> {
+        self.connected()?;
+
+        let mut packet = [0u8; 2];
+        let written =
+            crate::outbound::serialize_pingreq(&mut packet).map_err(|_| ClientError::SendFailed)?;
+
+        let Some(bytes) = packet.get(..written) else {
+            return Err(ClientError::SendFailed);
+        };
+
+        match self.send_buffer(transport, clock, bytes) {
+            SendOutcome::Sent(count) if count == written => {
+                self.ping_req_send_time = self.last_packet_tx_time;
+                self.waiting_for_ping_resp = true;
+                Ok(())
+            }
+            _ => Err(ClientError::SendFailed),
+        }
+    }
+
+    /// `MQTT_Disconnect` and the `sendDisconnectWithoutCopy` it drives.
+    ///
+    /// **The connection is marked closed before the packet is sent**, and the
+    /// network buffer is zeroed, so a send that fails still leaves a context
+    /// that believes it is disconnected. That is the C's order and it is the
+    /// right one — there is nothing useful to do with a connection whose
+    /// DISCONNECT would not go.
+    ///
+    /// Note which state it refuses: only `NotConnected`. A context whose
+    /// transport has already failed — `DisconnectPending` — is allowed to try
+    /// to send a DISCONNECT, which is the one thing it might still manage.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::NotConnected`] if there was never a connection,
+    /// [`ClientError::BadParameter`] if properties were supplied without a
+    /// reason code or the section is malformed, and [`ClientError::SendFailed`]
+    /// if the whole packet did not go.
+    pub fn disconnect<T: Transport, C: Clock>(
+        &mut self,
+        transport: &mut T,
+        clock: &mut C,
+        reason_code: Option<u8>,
+        properties: &[u8],
+    ) -> Result<(), ClientError> {
+        if reason_code.is_none() && !properties.is_empty() {
+            return Err(ClientError::BadParameter);
+        }
+
+        if !properties.is_empty() {
+            crate::disconnect::validate_outgoing_properties(
+                self.properties.session_expiry,
+                properties,
+            )
+            .map_err(|_| ClientError::BadParameter)?;
+        }
+
+        let size = crate::disconnect::disconnect_packet_size(
+            reason_code,
+            u32::try_from(properties.len()).map_err(|_| ClientError::BadParameter)?,
+            self.properties.server.max_packet_size,
+        )
+        .map_err(|_| ClientError::BadParameter)?;
+
+        if self.connect_status == ConnectionStatus::NotConnected {
+            return Err(ClientError::NotConnected);
+        }
+
+        // Before the send, as the C does.
+        self.connect_status = ConnectionStatus::NotConnected;
+        self.index = 0;
+        self.network.fill(0);
+
+        let mut fixed = [0u8; 6];
+        // Returns 0 when the destination is too small, which six bytes never
+        // is: one type byte, at most four of remaining length, one reason code.
+        let header = crate::writer::serialize_disconnect_fixed(
+            &mut fixed,
+            reason_code,
+            size.remaining_length,
+        );
+
+        if header == 0 {
+            return Err(ClientError::SendFailed);
+        }
+
+        let mut length = [0u8; 4];
+        let length_written = crate::header::encode_variable_length(
+            &mut length,
+            u32::try_from(properties.len()).unwrap_or(0),
+        );
+
+        let (head, _) = fixed.split_at(header);
+        let (prefix, _) = length.split_at(length_written);
+
+        let total = header
+            .saturating_add(length_written)
+            .saturating_add(properties.len());
+
+        let mut vectors: [&[u8]; 3] = [head, prefix, properties];
+        let count = if properties.is_empty() { 2 } else { 3 };
+
+        let Some(parts) = vectors.get_mut(..count) else {
+            return Err(ClientError::SendFailed);
+        };
+
+        match self.send_vectors(transport, clock, parts) {
+            SendOutcome::Sent(sent) if sent == total => Ok(()),
+            _ => Err(ClientError::SendFailed),
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -484,6 +821,39 @@ mod tests {
             retain_as_published: false,
             retain_handling: RetainHandling::OnSubscribe,
         }
+    }
+
+    /// The elapsed-time arithmetic must wrap, and a wrong one does not answer
+    /// wrongly — it never answers.
+    ///
+    /// This is pinned here rather than by the differential because of how it
+    /// fails. Replacing `wrapping_sub` with `saturating_sub` makes a clock that
+    /// has passed 0xFFFFFFFF report zero elapsed for ever, so `send_buffer`
+    /// against a transport that never accepts a byte **does not return**. The
+    /// poison is caught in the strongest possible sense and the harness cannot
+    /// see it, because a hang is not a failing assertion.
+    ///
+    /// A client that has been up for 49.7 days crosses this. The C is right by
+    /// construction — `later - start` on two `uint32_t` — and the only way to
+    /// break it is to add a guard that looks like care.
+    #[test]
+    fn the_elapsed_time_wraps_and_a_guarded_subtraction_would_never_time_out() {
+        // Ordinary.
+        assert_eq!(elapsed_ms(10_001, 0), 10_001);
+        assert_eq!(elapsed_ms(20_000, 0), 20_000);
+
+        // Across the wrap: the clock read 10,000 before it and 1 after.
+        assert_eq!(elapsed_ms(1, 0xFFFF_FFFF), 2);
+        assert_eq!(elapsed_ms(10_000, 0xFFFF_D8F0), 20_000);
+
+        // And the value that decides: at the wrap, an elapsed time at or over
+        // the timeout must still be at or over it.
+        assert!(elapsed_ms(10_000, 0xFFFF_D8F0) >= SEND_TIMEOUT_MS);
+
+        // A saturating subtraction gives zero for every one of these, which is
+        // why it would never time out.
+        assert_eq!(1u32.saturating_sub(0xFFFF_FFFF), 0);
+        assert_eq!(10_000u32.saturating_sub(0xFFFF_D8F0), 0);
     }
 
     /// Only the LAST subscription in a list decides whether the list is valid.

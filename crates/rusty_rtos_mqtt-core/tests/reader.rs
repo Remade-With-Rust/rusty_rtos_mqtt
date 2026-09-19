@@ -21,7 +21,7 @@
 
 use std::fmt::Write as _;
 
-use rusty_rtos_mqtt_core::reader::{ReadError, Received, Transport, read_header};
+use rusty_rtos_mqtt_core::reader::{ReadError, Received, Sent, Transport, read_header};
 
 const TRACE: &str = include_str!("../../../oracle/reader.trace");
 
@@ -45,6 +45,13 @@ impl Script {
 }
 
 impl Transport for Script {
+    /// This differential never sends: `read_header` only reads. A script that
+    /// was asked to would be a script driving the wrong function, so it says
+    /// so rather than quietly succeeding.
+    fn send(&mut self, _bytes: &[u8]) -> Sent {
+        panic!("the reader differential asked the transport to send");
+    }
+
     fn recv_one(&mut self) -> Received {
         self.calls += 1;
         let step = self.steps.get(self.at).copied();
