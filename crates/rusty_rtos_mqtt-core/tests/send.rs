@@ -116,6 +116,8 @@ fn status(result: Result<(), ClientError>) -> &'static str {
         Err(ClientError::NotConnected) => "StatusNotConnected",
         Err(ClientError::DisconnectPending) => "StatusDisconnectPending",
         Err(ClientError::SendFailed) => "SendFailed",
+        Err(ClientError::PublishStoreFailed) => "PublishStoreFailed",
+        Err(ClientError::State(_)) => "StateError",
     }
 }
 
@@ -219,7 +221,12 @@ fn our_trace() -> String {
                         client.last_packet_tx_time()
                     );
                 } else {
-                    let _ = writeln!(out, " connect={}", state(client.connect_status));
+                    let _ = writeln!(
+                        out,
+                        " connect={} reads={}",
+                        state(client.connect_status),
+                        clock.reads
+                    );
                 }
             }
 
@@ -276,7 +283,7 @@ fn our_send_plumbing_matches_the_c_call_for_call() {
         n += 1;
     }
 
-    assert_eq!(n, 28, "the trace should be 28 lines, not {n}");
+    assert_eq!(n, 29, "the trace should be 29 lines, not {n}");
 }
 
 /// The guard, twenty-sixth shape: a sender differential needs a case where the

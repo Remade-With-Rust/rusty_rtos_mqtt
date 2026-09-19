@@ -23,6 +23,8 @@
 //! rather than reproduced, and
 //! `a_refusal_hands_the_caller_nothing` pins our side of it.
 
+use core::borrow::Borrow;
+
 use crate::header::{MAX_REMAINING_LENGTH, REMAINING_LENGTH_INVALID, variable_length_encoded_size};
 
 /// `MQTT_PACKET_PINGREQ_SIZE`: a PINGREQ is always two bytes.
@@ -123,13 +125,17 @@ pub fn ack_packet_size(
 /// [`SizeError::BadParameter`] for an empty list, a zero `max_packet_size`, a
 /// topic filter longer than a `u16` can express, a total past
 /// [`MAX_REMAINING_LENGTH`], or a packet that will not fit `max_packet_size`.
-pub fn list_packet_size(
+pub fn list_packet_size<I>(
     kind: ListPacket,
-    topic_filter_lengths: &[usize],
+    topic_filter_lengths: I,
     property_length: u32,
     max_packet_size: u32,
-) -> Result<PacketSize, SizeError> {
-    if topic_filter_lengths.is_empty() || max_packet_size == 0 {
+) -> Result<PacketSize, SizeError>
+where
+    I: IntoIterator,
+    I::Item: Borrow<usize>,
+{
+    if max_packet_size == 0 {
         return Err(SizeError::BadParameter);
     }
 
@@ -141,15 +147,20 @@ pub fn list_packet_size(
     let mut remaining_length = 2u32
         .saturating_add(property_length)
         .saturating_add(variable_length_encoded_size(property_length));
+    let mut any = false;
 
     for length in topic_filter_lengths {
+        let length = *length.borrow();
+
+        any = true;
+
         // A topic filter is prefixed with a 16-bit length, so it cannot be
         // longer than one.
-        if u16::try_from(*length).is_err() {
+        if u16::try_from(length).is_err() {
             return Err(SizeError::BadParameter);
         }
 
-        let length = u32::try_from(*length).unwrap_or(u32::MAX);
+        let length = u32::try_from(length).unwrap_or(u32::MAX);
         remaining_length = remaining_length.saturating_add(length).saturating_add(2);
 
         // The C checks HERE, after the filter and before the options byte.
@@ -170,6 +181,15 @@ pub fn list_packet_size(
         if matches!(kind, ListPacket::Subscribe) {
             remaining_length = remaining_length.saturating_add(1);
         }
+    }
+
+    // The C tests the empty list first, before anything else; an iterator
+    // cannot be asked whether it is empty without consuming it, so the test
+    // moves to the end. Both orders answer `BadParameter`, and the only case
+    // where the order could show -- an empty list AND a bad property length --
+    // answers it either way.
+    if !any {
+        return Err(SizeError::BadParameter);
     }
 
     if remaining_length > MAX_REMAINING_LENGTH {
@@ -195,11 +215,15 @@ pub fn list_packet_size(
 /// # Errors
 ///
 /// See [`list_packet_size`].
-pub fn subscribe_packet_size(
-    topic_filter_lengths: &[usize],
+pub fn subscribe_packet_size<I>(
+    topic_filter_lengths: I,
     property_length: u32,
     max_packet_size: u32,
-) -> Result<PacketSize, SizeError> {
+) -> Result<PacketSize, SizeError>
+where
+    I: IntoIterator,
+    I::Item: Borrow<usize>,
+{
     list_packet_size(
         ListPacket::Subscribe,
         topic_filter_lengths,
@@ -213,11 +237,15 @@ pub fn subscribe_packet_size(
 /// # Errors
 ///
 /// See [`list_packet_size`].
-pub fn unsubscribe_packet_size(
-    topic_filter_lengths: &[usize],
+pub fn unsubscribe_packet_size<I>(
+    topic_filter_lengths: I,
     property_length: u32,
     max_packet_size: u32,
-) -> Result<PacketSize, SizeError> {
+) -> Result<PacketSize, SizeError>
+where
+    I: IntoIterator,
+    I::Item: Borrow<usize>,
+{
     list_packet_size(
         ListPacket::Unsubscribe,
         topic_filter_lengths,
@@ -254,12 +282,12 @@ mod tests {
     #[test]
     fn a_refusal_hands_the_caller_nothing() {
         // Sized at 13 bytes, offered a maximum of 12.
-        let refused = subscribe_packet_size(&[5], 0, 12);
+        let refused = subscribe_packet_size([5], 0, 12);
         assert_eq!(refused, Err(SizeError::BadParameter));
 
         // And the same list with room succeeds, so the refusal above is the
         // maximum and not the arithmetic.
-        let allowed = subscribe_packet_size(&[5], 0, 13).expect("13 bytes fit in 13");
+        let allowed = subscribe_packet_size([5], 0, 13).expect("13 bytes fit in 13");
         assert_eq!(allowed.packet_size, 13);
         assert_eq!(allowed.remaining_length, 11);
     }
@@ -299,12 +327,12 @@ mod tests {
 
         // Not enough on its own to overflow, but enough with a large property
         // section to pass the limit.
-        let refused = subscribe_packet_size(&filters, 268_000_000, u32::MAX);
+        let refused = subscribe_packet_size(filters, 268_000_000, u32::MAX);
         assert_eq!(refused, Err(SizeError::BadParameter));
 
         // And the saturating behaviour itself: a remaining length driven to
         // `u32::MAX` is still refused, where a wrapping one might not be.
-        let huge = subscribe_packet_size(&[65_535; 8], MAX_REMAINING_LENGTH, u32::MAX);
+        let huge = subscribe_packet_size([65_535; 8], MAX_REMAINING_LENGTH, u32::MAX);
         assert_eq!(
             huge,
             Err(SizeError::BadParameter),
@@ -322,7 +350,7 @@ mod tests {
     #[test]
     fn a_zero_maximum_is_refused_either_way() {
         // The floor: one filter of length zero, no properties.
-        let smallest = subscribe_packet_size(&[0], 0, u32::MAX).expect("the smallest list");
+        let smallest = subscribe_packet_size([0], 0, u32::MAX).expect("the smallest list");
         assert!(
             smallest.packet_size >= 4,
             "a list packet can now be smaller than four bytes, so a zero \
@@ -330,7 +358,7 @@ mod tests {
         );
 
         assert_eq!(
-            subscribe_packet_size(&[0], 0, 0),
+            subscribe_packet_size([0], 0, 0),
             Err(SizeError::BadParameter)
         );
         assert_eq!(ack_packet_size(0, 0), Err(SizeError::BadParameter));

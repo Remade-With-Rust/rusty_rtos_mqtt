@@ -89,9 +89,8 @@ pub enum Sent {
 ///
 /// The C's `TransportInterface_t` carries `recv`, `send`, an optional `writev`
 /// and an implementation-defined context. The context is whatever implements
-/// this trait, and `writev` is an optimisation a later slice will offer as a
-/// provided method — every caller of it in coreMQTT falls back to `send` when
-/// it is absent, which is the path this crate proves first.
+/// this trait, and `writev` is a PROVIDED METHOD whose default is the fallback
+/// the C reaches for when the pointer is null.
 pub trait Transport {
     /// Ask for exactly one byte.
     fn recv_one(&mut self) -> Received;
@@ -101,6 +100,38 @@ pub trait Transport {
     /// A transport may take fewer than it is offered; taking MORE than it is
     /// offered is a bug in the transport, and the C asserts on it.
     fn send(&mut self, bytes: &[u8]) -> Sent;
+
+    /// `TransportInterface_t.writev`: offer SEVERAL buffers in one call.
+    ///
+    /// This is the one part of the transport the C allows to be **absent**, and
+    /// its absence is a null pointer that `sendMessageVector` tests on every
+    /// turn of its loop:
+    ///
+    /// ```c
+    /// if( pContext->transportInterface.writev != NULL ) { writev( ..., iterator, vectorsToBeSent ); }
+    /// else                                              { send( ..., iterator->iov_base, iterator->iov_len ); }
+    /// ```
+    ///
+    /// So the absent case is not a refusal, it is a **fallback** — and a
+    /// fallback is what a default method is. Implement this and a gather goes
+    /// out in one call; leave it and the library offers one vector at a time,
+    /// which is exactly what the C does with a null pointer there.
+    ///
+    /// `parts` is the vectors that are **still outstanding**, with the first
+    /// one already advanced past whatever a previous call took.
+    ///
+    /// # Why this is worth having at all
+    ///
+    /// It is the only thing that makes a GATHER BOUNDARY observable. With the
+    /// per-vector fallback, a packet split into two gathers and the same packet
+    /// split into three produce the identical sequence of calls, because the
+    /// vectors are offered one at a time in the same order either way.
+    fn writev(&mut self, parts: &[&[u8]]) -> Sent {
+        match parts.first() {
+            Some(first) => self.send(first),
+            None => Sent::Nothing,
+        }
+    }
 }
 
 /// A packet's fixed header, as far as the transport has read it.

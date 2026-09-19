@@ -70,3 +70,6 @@ oracle/client_driver.pdb
 oracle/send_driver
 oracle/send_driver.exe
 oracle/send_driver.pdb
+oracle/outgoing_driver
+oracle/outgoing_driver.exe
+oracle/outgoing_driver.pdb

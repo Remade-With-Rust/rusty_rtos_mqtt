@@ -28,9 +28,39 @@
 use std::fmt::Write as _;
 
 use rusty_rtos_mqtt_core::client::{
-    ClientError, ConnectionStatus, MqttContext, RetainHandling, Subscription, SubscriptionType,
+    ClientError, Clock, ConnectionStatus, MqttContext, NoStore, RetainHandling, Subscription,
+    SubscriptionType,
 };
-use rusty_rtos_mqtt_core::state::QoS;
+use rusty_rtos_mqtt_core::outpublish::OutgoingPublish;
+use rusty_rtos_mqtt_core::reader::{Received, Sent, Transport};
+use rusty_rtos_mqtt_core::state::{QoS, Record};
+
+/// A transport that refuses everything, and a clock that never moves.
+///
+/// Every case in this trace is a REFUSAL: the C answers before it reaches the
+/// network, so the send paths are driven by `tests/outgoing.rs` instead. Wiring
+/// a transport that fails on its first call is what makes that claim checkable
+/// — if this arm ever got as far as sending, the answer would be `SendFailed`
+/// and the line would not match.
+struct Refuses;
+
+impl Transport for Refuses {
+    fn recv_one(&mut self) -> Received {
+        Received::Failed
+    }
+
+    fn send(&mut self, _bytes: &[u8]) -> Sent {
+        Sent::Failed
+    }
+}
+
+struct Frozen;
+
+impl Clock for Frozen {
+    fn now_ms(&mut self) -> u32 {
+        0
+    }
+}
 
 const TRACE: &str = include_str!("../../../oracle/client.trace");
 
@@ -45,6 +75,8 @@ fn status(result: Result<(), ClientError>) -> &'static str {
         Err(ClientError::DisconnectPending) => "StatusDisconnectPending",
         // No case in this trace sends, so this one cannot arise here.
         Err(ClientError::SendFailed) => "SendFailed",
+        Err(ClientError::PublishStoreFailed) => "PublishStoreFailed",
+        Err(ClientError::State(_)) => "StateError",
     }
 }
 
@@ -194,8 +226,10 @@ fn our_trace() -> String {
                     .expect("a length");
 
                 let mut buffer = [0u8; 256];
+                let mut outgoing_records = vec![Record::default(); outgoing];
+                let mut incoming_records = vec![Record::default(); incoming];
                 let mut client = MqttContext::new(&mut buffer);
-                client.enable_qos(outgoing, incoming, properties);
+                client.enable_qos(&mut outgoing_records, &mut incoming_records, properties);
 
                 let _ = writeln!(
                     out,
@@ -258,10 +292,14 @@ fn our_trace() -> String {
                 let shapes = field_of(&f, 8, "shapes=");
 
                 let mut buffer = [0u8; 256];
+                let mut outgoing_records = [Record::default(); 4];
+                let mut incoming_records = [Record::default(); 4];
+                let mut transport = Refuses;
+                let mut clock = Frozen;
                 let mut client = MqttContext::new(&mut buffer);
 
                 if stateful {
-                    client.enable_qos(4, 4, 0);
+                    client.enable_qos(&mut outgoing_records, &mut incoming_records, 0);
                 }
 
                 client.properties.server.wildcard_available = wildcard;
@@ -278,9 +316,9 @@ fn our_trace() -> String {
                     // the C's `> 2` refusal, answered by the type.
                     None => "BadParameter",
                     Some(list) => status(if unsubscribe {
-                        client.unsubscribe(&list, packet_id)
+                        client.unsubscribe(&mut transport, &mut clock, &list, packet_id, &[])
                     } else {
-                        client.subscribe(&list, packet_id, None)
+                        client.subscribe(&mut transport, &mut clock, &list, packet_id, &[])
                     }),
                 };
 
@@ -306,10 +344,14 @@ fn our_trace() -> String {
                     .expect("a length");
 
                 let mut buffer = [0u8; 256];
+                let mut outgoing_records = [Record::default(); 4];
+                let mut incoming_records = [Record::default(); 4];
+                let mut transport = Refuses;
+                let mut clock = Frozen;
                 let mut client = MqttContext::new(&mut buffer);
 
                 if stateful {
-                    client.enable_qos(4, 4, 0);
+                    client.enable_qos(&mut outgoing_records, &mut incoming_records, 0);
                 }
 
                 // `payload=0/5` is the C's non-null-length-with-a-null-pointer
@@ -327,8 +369,22 @@ fn our_trace() -> String {
                         topic
                     };
                     let body = vec![b'x'; payload_length];
+                    let info = OutgoingPublish {
+                        qos,
+                        dup: false,
+                        retain: false,
+                        topic_name: &topic,
+                        payload: &body,
+                        properties: &[],
+                    };
 
-                    status(client.publish(qos, packet_id, &topic, &body))
+                    status(client.publish(
+                        &mut transport,
+                        &mut clock,
+                        None::<&mut NoStore>,
+                        &info,
+                        packet_id,
+                    ))
                 };
 
                 let _ = writeln!(

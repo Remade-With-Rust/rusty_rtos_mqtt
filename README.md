@@ -89,12 +89,15 @@ lives.
 - **Proven**: the send plumbing, PINGREQ and DISCONNECT, against a **scripted
   transport** that takes what it likes and a scripted clock — the harness the
   rest of the connection machine runs on.
+- **Proven**: SUBSCRIBE, UNSUBSCRIBE and PUBLISH on the wire, built without
+  copying the caller's buffers, over both a per-vector transport and a
+  **gathered `writev`** — where a packet turns out to be several gathers, and
+  the stored copy of a publish differs from the sent one by one bit.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps: 39 functions, all but two of them in `core_mqtt.c`.** What is
-left is the outgoing packets, the receive loop, the acknowledgement handling and
-`MQTT_Connect` — and
+**Known gaps: 27 functions, all but two of them in `core_mqtt.c`.** What is
+left is the receive loop, the acknowledgement handling and `MQTT_Connect` — and
 `core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
 does not have. Everything else is remade: this crate can build and read every
 MQTT packet, off a socket or out of a buffer, and assemble, check and walk back
@@ -131,9 +134,9 @@ the transport reader CALL FOR CALL, 94 lines across the six outgoing property
 validators — 36 of them sweeps — 56 lines finishing that file, which run the
 library's TWO header readers side by side, 73 lines across the MQTT 5 property
 builders, 55 across the property reader, 109 across topic matching and 41
-across the client context and 28 across the send plumbing — all at the pinned
-v5.0.2. **179 of coreMQTT's 218 functions, 82.1 %**, counted by
-`oracle/coverage.py` from the pinned source. 183 tests. **This crate reads every packet a broker can send, off a socket or
+across the client context, 29 across the send plumbing and 59 across the
+outgoing packets — all at the pinned v5.0.2. **191 of coreMQTT's 218 functions,
+87.6 %**, counted by `oracle/coverage.py` from the pinned source. 188 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1473,6 +1476,55 @@ always zero), a step that lands elapsed time **exactly** on the timeout (or
 `>=` and `>` agree), and a context whose transport has already failed — because
 `MQTT_Disconnect` refuses only `NotConnected`, and lets a dying connection try
 to send the one packet it might still manage.
+
+## The outgoing packets
+
+**59 trace lines agree with `core_mqtt.c`** — SUBSCRIBE, UNSUBSCRIBE and
+PUBLISH, built **without copying** the caller's topic filters or payload, and
+handed to the transport as a scatter list.
+
+### One packet, several gathers, and the asymmetry nobody would guess
+
+A list of filters is sent out of a fixed array of four vectors. A SUBSCRIBE
+spends three of them on a topic — length, filter, options byte — and an
+UNSUBSCRIBE spends two, and the guard is `used <= 4 - per_topic` with the
+header's own vectors already counted. So:
+
+```
+sub   one-filter   v2/5:5, v3/6:6      the header alone, THEN the filter
+unsub one-filter   v4/10:10            the header AND the filter, one gather
+```
+
+Same packet either way. The gathers are split, not the stream — and with a
+transport that takes one vector at a time, the two are **indistinguishable**.
+The only instrument that can see a gather boundary is `writev`, which is handed
+the outstanding vectors *and their count*. That is why this slice implements it:
+three deliberate breakages of the gather arithmetic changed no line of the trace
+until `writev` was there to watch, and the fourth is dead at the shipped
+`MQTT_SUB_UNSUB_MAX_VECTORS` of four for a reason a unit test now states.
+
+### The copy that is stored is not the copy that is sent
+
+A QoS 1 or 2 PUBLISH is handed to the retransmit store **before** it goes out,
+and the header it is handed has the DUP flag **raised** — because what comes
+back out of a store is a list of `const` pointers that cannot be patched later.
+The C raises the bit, calls the store, and lowers it again:
+
+```
+pub qos1-stored   bytes=320d…   stored=3a0d…
+```
+
+One bit apart, on purpose, and a test reads both out of the same line and checks
+the relationship rather than two recorded strings.
+
+### Two defects in the send plumbing, found by reading it properly
+
+`sendMessageVector` and `sendBuffer` are thirty lines apart and do not agree:
+the first compares elapsed time with `>` and reads the clock only when it will
+loop again, the second compares with `>=` and reads it every turn including
+after a failure. This crate had given both the second shape. Two new trace cases
+— one that lands elapsed time exactly on the timeout in the *vector* sender, and
+a `reads=` column — now separate them, and four poisons hold them apart.
 
 ## The gate
 

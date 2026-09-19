@@ -337,6 +337,13 @@ static const PingCase_t VECTOR_CASES[] = {
     { "stops-mid-vector",   { 1, 64 }, 2, 0U, 1 },
     { "busy-then-ready",    { 0, 64 }, 2, 0U, 1 },
     { "always-busy-timeout", { 0 }, 1, 10001U, 1 },
+    /* A step that lands the elapsed time EXACTLY on the timeout.
+     *
+     * `sendBuffer` gives up here and `sendMessageVector` does NOT: the first
+     * compares with `>=` and the second with `>`, thirty lines apart in one
+     * file. So this case is one transport call longer than the ping case of
+     * the same name, and that is the only place the difference shows. */
+    { "timeout-exactly-on-the-boundary", { 0 }, 1, 10000U, 1 },
     { "fails-at-once",      { -1 }, 1, 0U, 1 },
     { "one-byte-then-fails", { 1, -1 }, 2, 0U, 1 },
     { "not-connected",      { 64 }, 1, 0U, 0 },
@@ -375,7 +382,8 @@ static void run_vector_case( size_t i )
             ( unsigned ) c->step, ( unsigned ) c->connect, status_name( status ),
             ( unsigned ) g_calls, ( g_log_len == 0U ) ? "-" : g_log );
     put_hex( g_sent, g_sent_len );
-    printf( " connect=%d\n", ( int ) context.connectStatus );
+    printf( " connect=%d reads=%u\n", ( int ) context.connectStatus,
+            ( unsigned ) g_clock_reads );
 }
 
 /* ---- the elapsed-time arithmetic, which is a wrap away from wrong ---------- */

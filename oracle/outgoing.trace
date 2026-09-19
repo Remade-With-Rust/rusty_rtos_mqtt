@@ -1,0 +1,59 @@
+geometry
+sub one-filter shapes=a/b n=1 qos=0 id=1 step=64 props=- conn=1 wv=0 -> Success calls=5 log=4:4,1:1,2:2,3:3,1:1 bytes=82090001000003612f6200
+sub one-filter-qos1 shapes=a/b n=1 qos=1 id=1 step=64 props=- conn=1 wv=0 -> Success calls=5 log=4:4,1:1,2:2,3:3,1:1 bytes=82090001000003612f6201
+sub one-filter-qos2 shapes=a/b n=1 qos=2 id=1 step=64 props=- conn=1 wv=0 -> Success calls=5 log=4:4,1:1,2:2,3:3,1:1 bytes=82090001000003612f6202
+sub short-filter shapes=a n=1 qos=0 id=1 step=64 props=- conn=1 wv=0 -> Success calls=5 log=4:4,1:1,2:2,1:1,1:1 bytes=820700010000016100
+sub long-filter shapes=long n=1 qos=0 id=1 step=64 props=- conn=1 wv=0 -> Success calls=5 log=4:4,1:1,2:2,8:8,1:1 bytes=820e0001000008616161616161616100
+sub two-filters shapes=a/b,ab n=2 qos=0 id=1 step=64 props=- conn=1 wv=0 -> Success calls=8 log=4:4,1:1,2:2,3:3,1:1,2:2,2:2,1:1 bytes=820e0001000003612f62000002616200
+sub three-filters shapes=a/b,ab,a n=3 qos=0 id=1 step=64 props=- conn=1 wv=0 -> Success calls=11 log=4:4,1:1,2:2,3:3,1:1,2:2,2:2,1:1,2:2,1:1,1:1 bytes=82120001000003612f6200000261620000016100
+sub with-properties shapes=a/b n=1 qos=0 id=1 step=64 props=0b07 conn=1 wv=0 -> Success calls=6 log=4:4,1:1,2:2,2:2,3:3,1:1 bytes=820b0001020b070003612f6200
+sub one-byte-at-a-time shapes=a/b n=1 qos=0 id=1 step=1 props=- conn=1 wv=0 -> Success calls=11 log=4:1,3:1,2:1,1:1,1:1,2:1,1:1,3:1,2:1,1:1,1:1 bytes=82090001000003612f6200
+sub two-filters-one-byte shapes=a/b,ab n=2 qos=0 id=1 step=1 props=- conn=1 wv=0 -> Success calls=16 log=4:1,3:1,2:1,1:1,1:1,2:1,1:1,3:1,2:1,1:1,1:1,2:1,1:1,2:1,1:1,1:1 bytes=820e0001000003612f62000002616200
+sub fails shapes=a/b n=1 qos=0 id=1 step=-1 props=- conn=1 wv=0 -> SendFailed calls=1 log=4:-1 bytes=-
+sub bad-share shapes=badshare n=1 qos=0 id=1 step=64 props=- conn=1 wv=0 -> BadParameter calls=0 log=- bytes=-
+sub not-connected shapes=a/b n=1 qos=0 id=1 step=64 props=- conn=0 wv=0 -> StatusNotConnected calls=0 log=- bytes=-
+sub not-connected-bad-id shapes=a/b n=1 qos=0 id=0 step=64 props=- conn=0 wv=0 -> BadParameter calls=0 log=- bytes=-
+unsub one-filter shapes=a/b n=1 qos=0 id=1 step=64 props=- conn=1 wv=0 -> Success calls=4 log=4:4,1:1,2:2,3:3 bytes=a2080001000003612f62
+unsub two-filters shapes=a/b,ab n=2 qos=0 id=1 step=64 props=- conn=1 wv=0 -> Success calls=6 log=4:4,1:1,2:2,3:3,2:2,2:2 bytes=a20c0001000003612f6200026162
+unsub with-properties shapes=a/b n=1 qos=0 id=1 step=64 props=2600016b000176 conn=1 wv=0 -> Success calls=5 log=4:4,1:1,7:7,2:2,3:3 bytes=a20f0001072600016b0001760003612f62
+unsub one-byte-at-a-time shapes=a/b n=1 qos=0 id=1 step=1 props=- conn=1 wv=0 -> Success calls=10 log=4:1,3:1,2:1,1:1,1:1,2:1,1:1,3:1,2:1,1:1 bytes=a2080001000003612f62
+unsub fails shapes=a/b n=1 qos=0 id=1 step=-1 props=- conn=1 wv=0 -> SendFailed calls=1 log=4:-1 bytes=-
+unsub bad-share shapes=badshare n=1 qos=0 id=1 step=64 props=- conn=1 wv=0 -> Success calls=4 log=4:4,1:1,2:2,11:11 bytes=a210000100000b2473686172652f2f612f62
+unsub not-connected shapes=a/b n=1 qos=0 id=1 step=64 props=- conn=0 wv=0 -> StatusNotConnected calls=0 log=- bytes=-
+unsub not-connected-bad-id shapes=a/b n=1 qos=0 id=0 step=64 props=- conn=0 wv=0 -> BadParameter calls=0 log=- bytes=-
+pub qos0 qos=0 id=0 topic=a/b payload=hello step=64 retx=0 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> Success calls=4 log=4:4,3:3,1:1,5:5 bytes=300b0003612f620068656c6c6f storecalls=0 stored=- rec=0/Null
+pub qos0-no-payload qos=0 id=0 topic=a/b payload=- step=64 retx=0 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> Success calls=3 log=4:4,3:3,1:1 bytes=30060003612f6200 storecalls=0 stored=- rec=0/Null
+pub qos1 qos=1 id=5 topic=a/b payload=hello step=64 retx=0 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> Success calls=5 log=4:4,3:3,2:2,1:1,5:5 bytes=320d0003612f6200050068656c6c6f storecalls=0 stored=- rec=5/PubAckPending
+pub qos2 qos=2 id=6 topic=a/b payload=hello step=64 retx=0 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> Success calls=5 log=4:4,3:3,2:2,1:1,5:5 bytes=340d0003612f6200060068656c6c6f storecalls=0 stored=- rec=6/PubRecPending
+pub retain qos=0 id=0 topic=a/b payload=hello step=64 retx=0 store=1 dup=0 retain=1 props=- conn=1 wv=0 -> Success calls=4 log=4:4,3:3,1:1,5:5 bytes=310b0003612f620068656c6c6f storecalls=0 stored=- rec=0/Null
+pub with-properties qos=0 id=0 topic=a/b payload=hello step=64 retx=0 store=1 dup=0 retain=0 props=2600016b000176 conn=1 wv=0 -> Success calls=5 log=4:4,3:3,1:1,7:7,5:5 bytes=30120003612f62072600016b00017668656c6c6f storecalls=0 stored=- rec=0/Null
+pub one-byte-at-a-time qos=0 id=0 topic=a/b payload=hello step=1 retx=0 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> Success calls=13 log=4:1,3:1,2:1,1:1,3:1,2:1,1:1,1:1,5:1,4:1,3:1,2:1,1:1 bytes=300b0003612f620068656c6c6f storecalls=0 stored=- rec=0/Null
+pub fails qos=0 id=0 topic=a/b payload=hello step=-1 retx=0 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> SendFailed calls=1 log=4:-1 bytes=- storecalls=0 stored=- rec=0/Null
+pub qos1-stored qos=1 id=5 topic=a/b payload=hello step=64 retx=1 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> Success calls=5 log=4:4,3:3,2:2,1:1,5:5 bytes=320d0003612f6200050068656c6c6f storecalls=1 stored=3a0d0003612f6200050068656c6c6f rec=5/PubAckPending
+pub qos1-stored-already-dup qos=1 id=5 topic=a/b payload=hello step=64 retx=1 store=1 dup=1 retain=0 props=- conn=1 wv=0 -> Success calls=5 log=4:4,3:3,2:2,1:1,5:5 bytes=3a0d0003612f6200050068656c6c6f storecalls=1 stored=3a0d0003612f6200050068656c6c6f rec=5/PubAckPending
+pub qos2-stored qos=2 id=6 topic=a/b payload=hello step=64 retx=1 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> Success calls=5 log=4:4,3:3,2:2,1:1,5:5 bytes=340d0003612f6200060068656c6c6f storecalls=1 stored=3c0d0003612f6200060068656c6c6f rec=6/PubRecPending
+pub qos1-store-refuses qos=1 id=5 topic=a/b payload=hello step=64 retx=1 store=0 dup=0 retain=0 props=- conn=1 wv=0 -> PublishStoreFailed calls=0 log=- bytes=- storecalls=1 stored=3a0d0003612f6200050068656c6c6f rec=5/PublishSend
+pub qos0-is-never-stored qos=0 id=0 topic=a/b payload=hello step=64 retx=1 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> Success calls=4 log=4:4,3:3,1:1,5:5 bytes=300b0003612f620068656c6c6f storecalls=0 stored=- rec=0/Null
+pub qos1-stored-with-properties qos=1 id=5 topic=a/b payload=hello step=64 retx=1 store=1 dup=0 retain=0 props=2600016b000176 conn=1 wv=0 -> Success calls=6 log=4:4,3:3,2:2,1:1,7:7,5:5 bytes=32140003612f620005072600016b00017668656c6c6f storecalls=1 stored=3a140003612f620005072600016b00017668656c6c6f rec=5/PubAckPending
+pub not-connected qos=0 id=0 topic=a/b payload=hello step=64 retx=0 store=1 dup=0 retain=0 props=- conn=0 wv=0 -> StatusNotConnected calls=0 log=- bytes=- storecalls=0 stored=- rec=0/Null
+pub not-connected-empty-topic qos=0 id=0 topic= payload=hello step=64 retx=0 store=1 dup=0 retain=0 props=- conn=0 wv=0 -> BadParameter calls=0 log=- bytes=- storecalls=0 stored=- rec=0/Null
+pub qos1-stored-no-payload qos=1 id=5 topic=a/b payload=- step=64 retx=1 store=1 dup=0 retain=0 props=- conn=1 wv=0 -> Success calls=4 log=4:4,3:3,2:2,1:1 bytes=32080003612f62000500 storecalls=1 stored=3a080003612f62000500 rec=5/PubAckPending
+sub one-filter-writev shapes=a/b n=1 qos=0 id=1 step=64 props=- conn=1 wv=1 -> Success calls=2 log=v2/5:5,v3/6:6 bytes=82090001000003612f6200
+sub three-filters-writev shapes=a/b,ab,a n=3 qos=0 id=1 step=64 props=- conn=1 wv=1 -> Success calls=4 log=v2/5:5,v3/6:6,v3/5:5,v3/4:4 bytes=82120001000003612f6200000261620000016100
+sub with-properties-writev shapes=a/b n=1 qos=0 id=1 step=64 props=0b07 conn=1 wv=1 -> Success calls=2 log=v3/7:7,v3/6:6 bytes=820b0001020b070003612f6200
+sub one-byte-at-a-time-writev shapes=a/b n=1 qos=0 id=1 step=1 props=- conn=1 wv=1 -> Success calls=11 log=v2/5:1,v2/4:1,v2/3:1,v2/2:1,v1/1:1,v3/6:1,v3/5:1,v2/4:1,v2/3:1,v2/2:1,v1/1:1 bytes=82090001000003612f6200
+unsub one-filter-writev shapes=a/b n=1 qos=0 id=1 step=64 props=- conn=1 wv=1 -> Success calls=1 log=v4/10:10 bytes=a2080001000003612f62
+unsub two-filters-writev shapes=a/b,ab n=2 qos=0 id=1 step=64 props=- conn=1 wv=1 -> Success calls=2 log=v4/10:10,v2/4:4 bytes=a20c0001000003612f6200026162
+unsub with-properties-writev shapes=a/b n=1 qos=0 id=1 step=64 props=2600016b000176 conn=1 wv=1 -> Success calls=2 log=v3/12:12,v2/5:5 bytes=a20f0001072600016b0001760003612f62
+pub qos1-writev qos=1 id=5 topic=a/b payload=hello step=64 retx=0 store=1 dup=0 retain=0 props=- conn=1 wv=1 -> Success calls=1 log=v5/15:15 bytes=320d0003612f6200050068656c6c6f storecalls=0 stored=- rec=5/PubAckPending
+pub qos1-writev-in-pieces qos=1 id=5 topic=a/b payload=hello step=3 retx=0 store=1 dup=0 retain=0 props=- conn=1 wv=1 -> Success calls=5 log=v5/15:3,v5/12:3,v4/9:3,v2/6:3,v1/3:3 bytes=320d0003612f6200050068656c6c6f storecalls=0 stored=- rec=5/PubAckPending
+pub qos0-writev-no-payload qos=0 id=0 topic=a/b payload=- step=64 retx=0 store=1 dup=0 retain=0 props=- conn=1 wv=1 -> Success calls=1 log=v3/8:8 bytes=30060003612f6200 storecalls=0 stored=- rec=0/Null
+collide qos1-same-id qos=1 id=5 dup=0 first=Success -> StateCollision calls=0 log=- bytes=- rec=5/PubAckPending
+collide qos1-same-id-dup qos=1 id=5 dup=1 first=Success -> Success calls=5 log=4:4,3:3,2:2,1:1,5:5 bytes=3a0d0003612f6200050068656c6c6f rec=5/PubAckPending
+collide qos2-same-id qos=2 id=6 dup=0 first=Success -> StateCollision calls=0 log=- bytes=- rec=6/PubRecPending
+collide qos0-has-no-record qos=0 id=0 dup=0 first=Success -> Success calls=4 log=4:4,3:3,1:1,5:5 bytes=300b0003612f620068656c6c6f rec=0/Null
+cancel no-qos stateful=0 published=0/0 id=5 -> BadParameter
+cancel no-such-record stateful=1 published=0/0 id=5 -> BadParameter
+cancel the-one-in-flight stateful=1 published=1/5 id=5 -> Success
+cancel another-one stateful=1 published=1/5 id=6 -> BadParameter
+end

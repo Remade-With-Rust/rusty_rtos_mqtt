@@ -830,6 +830,71 @@ says that if the time function is a no-op then `MQTT_SEND_TIMEOUT_MS` must be
 zero. That is a documented precondition, not a defect, and **a differential case
 that cannot terminate is not a case.**
 
+## Conformance (2026-09-19) — the outgoing packets
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **59 / 59** | `cargo test -p rusty_rtos_mqtt-core --test outgoing`. C arm: `oracle/outgoing_driver.c` driving `core_mqtt.c` verbatim from v5.0.2 at `04845c6a`. |
+| what is compared per case | **the status, the call count, the log of every offer and its answer, the bytes that arrived, the stored copy, and the outgoing RECORD** | the record is what makes the state wiring observable; without it a publish that reserved a record and never advanced it is identical on the wire to one that did both. |
+| transports driven | **two** | a per-vector one, which proves the trait's default, and a gathered `writev`, which is the only thing that can see a gather boundary. |
+| poison rows | **27 introduced, 25 caught** | the two that remain are dead at `MQTT_SUB_UNSUB_MAX_VECTORS = 4`, and `the_gather_geometry_is_decided_by_a_constant` says why. |
+| plus the send plumbing | **5 more poisons, 5 caught** | four of them on behaviour this crate had transcribed wrongly until this slice. |
+
+**A packet is one stream and several GATHERS, and the split is not symmetric.**
+A SUBSCRIBE spends three vectors on a topic and an UNSUBSCRIBE two, against a
+four-vector array whose count is never reset before the filter loop. So a
+SUBSCRIBE's first gather carries no filter at all and an UNSUBSCRIBE's carries
+one:
+
+```
+sub   one-filter   v2/5:5, v3/6:6
+unsub one-filter   v4/10:10
+```
+
+**The guard, twenty-seventh shape: a gather boundary is invisible to a transport
+that is offered one vector at a time.** Three deliberate breakages of the gather
+arithmetic — mis-counting the per-topic cost either way, and a strict inequality
+in the guard — changed **no line** of the trace, because the vectors are offered
+one at a time in the same order however they are grouped. Implementing `writev`,
+which the C calls with the outstanding vectors *and their count*, made all three
+fail. That was not an optimisation: `sendMessageVector` was already claimed as
+remade and its `writev` branch was not there, so the claim was half true.
+
+**And the twenty-eighth: a poison that a CONSTANT makes dead is not a workload
+gap.** Two of the twenty-seven still do not fire, and neither is a missing case.
+At `MQTT_SUB_UNSUB_MAX_VECTORS = 4` a SUBSCRIBE's room is **one** vector and the
+cheapest filter costs **two**, so the first filter ends the gather whether or not
+the options byte is counted — the arithmetic cannot be wrong in a way that shows.
+`the_gather_geometry_is_decided_by_a_constant` states that in terms of the three
+constants rather than the code, which is where the property actually lives.
+
+**Reading the C properly turned up two defects in the previous slice.**
+`sendMessageVector` compares elapsed time with `>` and reads the clock only when
+it will go round again — including not reading it after a transport failure —
+where `sendBuffer`, thirty lines away, compares with `>=` and reads it every
+turn. This crate had given both senders `sendBuffer`'s shape and the trace
+agreed, because nothing asked. Two new cases ask: a step that lands elapsed time
+exactly on the timeout in the *vector* sender (`calls=3` against the buffer
+sender's `calls=2`) and a `reads=` column on every vector line.
+
+**A duplicate type deleted.** `client::Subscription` and
+`outbound::Subscription` had the same five fields; slice 19 wrote the second
+without looking for the first. The twenty-second shape of the guard, pointed at
+a struct: *two types that cannot be told apart are one type with two names.* The
+same pass replaced the client's `outgoing_records: usize` with the real
+`PublishRecords`, so `MQTT_CancelCallback` and the publish state machine are
+wired rather than counted.
+
+**One case removed rather than added, again.** `MQTT_CancelCallback` passes a
+packet id of zero straight to `findInRecord`, which asserts on it — so on a build
+with assertions live the C **aborts** rather than answering, and the driver died
+with it. A documented precondition, not a defect, and a differential case the C
+cannot complete is not a case.
+
+**Two upstream findings drafted**, in `kairos-upstream/drafts/`: a CWE-787 stack
+write out of bounds reachable by setting `MQTT_SUB_UNSUB_MAX_VECTORS` below 3
+(the guard's `4U - 3U` is unsigned), and the two senders' disagreement above.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -845,7 +910,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 183 passed, 0 failed (95 unit, 15 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client, 3 send) |
+| `cargo test -p rusty_rtos_mqtt-core` | 188 passed, 0 failed (96 unit, 15 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client, 3 send, 4 outgoing) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -864,9 +929,9 @@ the only place the number comes from; `--check` fails if the list names a
 function the pinned source does not have.
 
 ```
-functions      179 / 218    82.1 %
-function lines  9683 / 13066  74.1 %
-all lines       9683 / 15643  61.9 %   (2577 lines are preamble and cannot be remade)
+functions      191 / 218    87.6 %
+function lines 10690 / 13066  81.8 %
+all lines      10690 / 15643  68.3 %   (2577 lines are preamble and cannot be remade)
 ```
 
 **The headline is the first line.** A function is the unit that can be
@@ -882,14 +947,14 @@ figure cannot reach 100 % however much is done.
 | `core_mqtt_serializer_private.c` | 15 / 15 |
 | `core_mqtt_prop_serializer.c` | 23 / 23 |
 | `core_mqtt_prop_deserializer.c` | 31 / 31 |
-| `core_mqtt.c` | 23 / 60 |
+| `core_mqtt.c` | 35 / 60 |
 
 The two outstanding in `core_mqtt_serializer.c` are `logConnackResponse` and
 `logAckResponse`: `static void`s of `LogError` calls with no observable
 behaviour. They are counted as not written rather than claimed, because a remake
-that produces no log line has not remade a logger. The 37 outstanding in
-`core_mqtt.c` are the outgoing packets, the receive loop, the acknowledgement
-handling and `MQTT_Connect` — all of which now have a harness to run on.
+that produces no log line has not remade a logger. The 25 outstanding in
+`core_mqtt.c` are the receive loop, the acknowledgement handling and
+`MQTT_Connect`.
 
 **This replaces the earlier figure, which was wrong.** Until 2026-09-18 this
 table divided a hand-maintained sum of per-slice line counts by all 15,643

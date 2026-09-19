@@ -248,3 +248,16 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/send_driver" > "$here/send.trace"
 echo "wrote $(wc -l < "$here/send.trace") lines to $here/send.trace"
+
+# The outgoing-packet differential's C arm: SUBSCRIBE, UNSUBSCRIBE and PUBLISH,
+# built WITHOUT COPYING from the caller's own buffers, over the scripted
+# transport -- plus the store callback, which is the only door to the two
+# public vector helpers.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/outgoing_driver" \
+   "$core" "$src" "$ser" "$priv" "$props" "$propd" "$here/outgoing_driver.c"
+
+"$here/outgoing_driver" > "$here/outgoing.trace"
+echo "wrote $(wc -l < "$here/outgoing.trace") lines to $here/outgoing.trace"

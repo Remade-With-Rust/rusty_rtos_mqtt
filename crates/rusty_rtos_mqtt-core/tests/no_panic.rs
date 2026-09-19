@@ -584,8 +584,10 @@ fn arbitrary_topic_filters_never_panic() {
             .collect();
 
         let mut buffer = [0u8; 32];
+        let mut outgoing = [Record::default(); 4];
+        let mut incoming = [Record::default(); 4];
         let mut client = MqttContext::new(&mut buffer);
-        client.enable_qos(4, 4, 0);
+        client.enable_qos(&mut outgoing, &mut incoming, 0);
         client.properties.server.wildcard_available = (rng.below(2)) as u8;
         client.properties.server.shared_available = (rng.below(2)) as u8;
 

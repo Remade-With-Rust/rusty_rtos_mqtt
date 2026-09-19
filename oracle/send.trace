@@ -1,4 +1,4 @@
-geometry pings=12 vectors=11
+geometry pings=12 vectors=12
 ping 0 all-at-once script=2 step=0 connected=1 -> Success calls=1 log=2:2 bytes=c000 connect=1 waiting=1 txtime=0
 ping 1 all-at-once-moving-clock script=2 step=7 connected=1 -> Success calls=1 log=2:2 bytes=c000 connect=1 waiting=1 txtime=7
 ping 2 one-byte-at-a-time script=1,1 step=0 connected=1 -> Success calls=2 log=2:1,1:1 bytes=c000 connect=1 waiting=1 txtime=0
@@ -11,17 +11,18 @@ ping 8 fails-at-once script=-1 step=0 connected=1 -> SendFailed calls=1 log=2:-1
 ping 9 one-byte-then-fails script=1,-1 step=0 connected=1 -> SendFailed calls=2 log=2:1,1:-1 bytes=c0 connect=2 waiting=0 txtime=0
 ping 10 not-connected script=2 step=0 connected=0 -> StatusNotConnected calls=0 log=- bytes=- connect=0 waiting=0 txtime=0
 ping 11 disconnect-pending script=2 step=0 connected=2 -> StatusDisconnectPending calls=0 log=- bytes=- connect=2 waiting=0 txtime=0
-vec 0 all-at-once script=64 step=0 connected=1 -> Success calls=2 log=2:2,1:1 bytes=e00100 connect=0
-vec 1 one-byte-at-a-time script=1 step=0 connected=1 -> Success calls=3 log=2:1,1:1,1:1 bytes=e00100 connect=0
-vec 2 two-at-a-time script=2 step=0 connected=1 -> Success calls=2 log=2:2,1:1 bytes=e00100 connect=0
-vec 3 stops-on-a-boundary script=2,64 step=0 connected=1 -> Success calls=2 log=2:2,1:1 bytes=e00100 connect=0
-vec 4 stops-mid-vector script=1,64 step=0 connected=1 -> Success calls=3 log=2:1,1:1,1:1 bytes=e00100 connect=0
-vec 5 busy-then-ready script=0,64 step=0 connected=1 -> Success calls=3 log=2:0,2:2,1:1 bytes=e00100 connect=0
-vec 6 always-busy-timeout script=0 step=10001 connected=1 -> SendFailed calls=2 log=2:0,2:0 bytes=- connect=0
-vec 7 fails-at-once script=-1 step=0 connected=1 -> SendFailed calls=1 log=2:-1 bytes=- connect=0
-vec 8 one-byte-then-fails script=1,-1 step=0 connected=1 -> SendFailed calls=2 log=2:1,1:-1 bytes=e0 connect=0
-vec 9 not-connected script=64 step=0 connected=0 -> StatusNotConnected calls=0 log=- bytes=- connect=0
-vec 10 disconnect-pending script=64 step=0 connected=2 -> Success calls=2 log=2:2,1:1 bytes=e00100 connect=0
+vec 0 all-at-once script=64 step=0 connected=1 -> Success calls=2 log=2:2,1:1 bytes=e00100 connect=0 reads=4
+vec 1 one-byte-at-a-time script=1 step=0 connected=1 -> Success calls=3 log=2:1,1:1,1:1 bytes=e00100 connect=0 reads=6
+vec 2 two-at-a-time script=2 step=0 connected=1 -> Success calls=2 log=2:2,1:1 bytes=e00100 connect=0 reads=4
+vec 3 stops-on-a-boundary script=2,64 step=0 connected=1 -> Success calls=2 log=2:2,1:1 bytes=e00100 connect=0 reads=4
+vec 4 stops-mid-vector script=1,64 step=0 connected=1 -> Success calls=3 log=2:1,1:1,1:1 bytes=e00100 connect=0 reads=6
+vec 5 busy-then-ready script=0,64 step=0 connected=1 -> Success calls=3 log=2:0,2:2,1:1 bytes=e00100 connect=0 reads=5
+vec 6 always-busy-timeout script=0 step=10001 connected=1 -> SendFailed calls=2 log=2:0,2:0 bytes=- connect=0 reads=3
+vec 7 timeout-exactly-on-the-boundary script=0 step=10000 connected=1 -> SendFailed calls=3 log=2:0,2:0,2:0 bytes=- connect=0 reads=4
+vec 8 fails-at-once script=-1 step=0 connected=1 -> SendFailed calls=1 log=2:-1 bytes=- connect=0 reads=1
+vec 9 one-byte-then-fails script=1,-1 step=0 connected=1 -> SendFailed calls=2 log=2:1,1:-1 bytes=e0 connect=0 reads=3
+vec 10 not-connected script=64 step=0 connected=0 -> StatusNotConnected calls=0 log=- bytes=- connect=0 reads=0
+vec 11 disconnect-pending script=64 step=0 connected=2 -> Success calls=2 log=2:2,1:1 bytes=e00100 connect=0 reads=4
 elapsed far-from-the-wrap start=0 step=10001 -> SendFailed calls=2 reads=3
 elapsed at-the-wrap start=4294967295 step=10001 -> SendFailed calls=2 reads=3
 elapsed one-before-the-wrap start=4294957296 step=10001 -> SendFailed calls=2 reads=3

@@ -113,9 +113,9 @@ fn our_trace() -> String {
                 if f[1] == "zero-count" {
                     // An empty list, which both calculators refuse.
                     let result = if kind == "sub" {
-                        subscribe_packet_size(&[], 0, 1000)
+                        subscribe_packet_size([0usize; 0], 0, 1000)
                     } else {
-                        unsubscribe_packet_size(&[], 0, 1000)
+                        unsubscribe_packet_size([0usize; 0], 0, 1000)
                     };
                     let _ = writeln!(out, "{kind} zero-count{}", outcome(result));
                     continue;
@@ -204,17 +204,17 @@ fn the_cases_refuse_for_every_reason() {
         "a property length past the limit must be refused"
     );
     assert_eq!(
-        subscribe_packet_size(&[], 0, 1000),
+        subscribe_packet_size([0usize; 0], 0, 1000),
         Err(SizeError::BadParameter),
         "an empty subscription list must be refused"
     );
     assert_eq!(
-        subscribe_packet_size(&[65_536], 0, 1_000_000),
+        subscribe_packet_size([65_536], 0, 1_000_000),
         Err(SizeError::BadParameter),
         "a topic filter too long for its 16-bit prefix must be refused"
     );
     assert_eq!(
-        subscribe_packet_size(&[5], 0, 12),
+        subscribe_packet_size([5], 0, 12),
         Err(SizeError::BadParameter),
         "a packet larger than the broker's maximum must be refused"
     );

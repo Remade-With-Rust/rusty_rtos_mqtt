@@ -38,9 +38,22 @@
 //! [`builder`](crate::builder)'s.
 
 use crate::context::ConnectionProperties;
+use crate::outbound::subscription_options;
+use crate::outpublish::OutgoingPublish;
 use crate::reader::{Sent, Transport};
-use crate::state::QoS;
-use crate::validate::{ValidateError, validate_subscribe_properties};
+use crate::state::{PublishRecords, QoS, Record, StateError};
+use crate::validate::{
+    ValidateError, validate_publish_params, validate_publish_properties,
+    validate_subscribe_properties, validate_unsubscribe_properties,
+};
+
+/// `MQTTRetainHandling_t`.
+///
+/// One type, two users: the serializer builds the options byte from it and the
+/// client validates it. There was briefly a second copy here with the same five
+/// fields, which is the twenty-second shape of the guard pointed at a struct —
+/// *two types that cannot be told apart are one type with two names*.
+pub use crate::outbound::{RetainHandling, Subscription};
 
 /// Why the client refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +72,15 @@ pub enum ClientError {
     /// something a broker can recover from, so there is no "sent some of it"
     /// answer to give a caller.
     SendFailed,
+    /// `MQTTPublishStoreFailed`: the application refused to keep the copy that
+    /// a QoS 1 or 2 PUBLISH needs in order to be retransmitted.
+    ///
+    /// **Nothing was sent.** The copy is taken before the packet goes out, so a
+    /// refusal here is the one send failure that leaves the wire untouched.
+    PublishStoreFailed,
+    /// What the publish-state machine said. `MQTTStateCollision` is the one to
+    /// expect: that packet identifier is already in flight.
+    State(StateError),
 }
 
 /// `MQTTConnectionStatus_t`.
@@ -86,33 +108,6 @@ pub enum SubscriptionType {
     Unsubscribe,
 }
 
-/// How a broker should treat retained messages when a subscription is made.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum RetainHandling {
-    /// Send them at subscribe time.
-    #[default]
-    OnSubscribe,
-    /// Send them only if the subscription is new.
-    OnSubscribeIfNew,
-    /// Never send them.
-    Never,
-}
-
-/// One entry in a SUBSCRIBE or UNSUBSCRIBE list.
-#[derive(Debug, Clone, Copy)]
-pub struct Subscription<'a> {
-    /// The filter. May not be empty, and may not exceed 65,535 bytes.
-    pub topic_filter: &'a [u8],
-    /// The delivery guarantee asked for.
-    pub qos: QoS,
-    /// Do not send me my own messages.
-    pub no_local: bool,
-    /// Keep the RETAIN flag as the publisher set it.
-    pub retain_as_published: bool,
-    /// What to do about retained messages.
-    pub retain_handling: RetainHandling,
-}
-
 /// `MQTTContext_t`, as far as this slice needs it.
 #[derive(Debug)]
 pub struct MqttContext<'a> {
@@ -122,8 +117,7 @@ pub struct MqttContext<'a> {
     pub connect_status: ConnectionStatus,
     network: &'a mut [u8],
     next_packet_id: u16,
-    outgoing_records: usize,
-    incoming_records: usize,
+    records: Option<PublishRecords<'a>>,
     ack_properties: usize,
     /// When the last byte went out, by the caller's clock.
     last_packet_tx_time: u32,
@@ -154,8 +148,7 @@ impl<'a> MqttContext<'a> {
             network,
             // Zero is not a valid packet identifier, so the first one is 1.
             next_packet_id: 1,
-            outgoing_records: 0,
-            incoming_records: 0,
+            records: None,
             ack_properties: 0,
             last_packet_tx_time: 0,
             ping_req_send_time: 0,
@@ -194,22 +187,67 @@ impl<'a> MqttContext<'a> {
     /// keep the handshake. The C's four refusals are all a pointer disagreeing
     /// with a count, or being called before `MQTT_Init`; slices and a method on
     /// an existing context make all four unrepresentable.
-    pub fn enable_qos(&mut self, outgoing: usize, incoming: usize, ack_properties: usize) {
-        self.outgoing_records = outgoing;
-        self.incoming_records = incoming;
+    ///
+    /// The C keeps a pointer and a count for each array; here it is the arrays
+    /// themselves, so a context that has been given records **is** a context
+    /// that can do QoS 1 — the two cannot drift apart.
+    pub fn enable_qos(
+        &mut self,
+        outgoing: &'a mut [Record],
+        incoming: &'a mut [Record],
+        ack_properties: usize,
+    ) {
+        self.records = Some(PublishRecords::new(outgoing, incoming));
         self.ack_properties = ack_properties;
     }
 
     /// How many outgoing QoS records there is room for.
     #[must_use]
-    pub const fn outgoing_records(&self) -> usize {
-        self.outgoing_records
+    pub fn outgoing_records(&self) -> usize {
+        self.records
+            .as_ref()
+            .map_or(0, |records| records.outgoing().len())
     }
 
     /// How many incoming QoS records there is room for.
     #[must_use]
-    pub const fn incoming_records(&self) -> usize {
-        self.incoming_records
+    pub fn incoming_records(&self) -> usize {
+        self.records
+            .as_ref()
+            .map_or(0, |records| records.incoming().len())
+    }
+
+    /// The outgoing records, for a caller that wants to see what is in flight.
+    ///
+    /// The C exposes the array it was handed, so there is nothing hidden here
+    /// that was not already the application's.
+    #[must_use]
+    pub fn outgoing(&self) -> &[Record] {
+        self.records
+            .as_ref()
+            .map_or(&[], |records| records.outgoing())
+    }
+
+    /// The incoming records.
+    #[must_use]
+    pub fn incoming(&self) -> &[Record] {
+        self.records
+            .as_ref()
+            .map_or(&[], |records| records.incoming())
+    }
+
+    /// `MQTT_CancelCallback`: forget an outgoing message before it is answered.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::BadParameter`] if QoS was never enabled, and
+    /// [`ClientError::State`] if there is no such record.
+    pub fn cancel_callback(&mut self, packet_id: u16) -> Result<(), ClientError> {
+        let Some(records) = self.records.as_mut() else {
+            return Err(ClientError::BadParameter);
+        };
+
+        records.remove(packet_id).map_err(ClientError::State)
     }
 
     /// How much room an acknowledgement's properties have.
@@ -271,7 +309,7 @@ impl<'a> MqttContext<'a> {
         }
 
         // This loop DOES break, and the one below does not.
-        if self.incoming_records == 0 {
+        if self.incoming_records() == 0 {
             for entry in list {
                 if entry.qos != QoS::AtMostOnce {
                     return Err(ClientError::BadParameter);
@@ -385,47 +423,6 @@ impl<'a> MqttContext<'a> {
         Ok(())
     }
 
-    /// `MQTT_Subscribe`, as far as the wire: validate, check the properties,
-    /// then discover there is no connection.
-    ///
-    /// # Errors
-    ///
-    /// [`ClientError::BadParameter`] from the validators,
-    /// [`ClientError::NotConnected`] or [`ClientError::DisconnectPending`]
-    /// from the connection.
-    pub fn subscribe(
-        &self,
-        list: &[Subscription<'_>],
-        packet_id: u16,
-        properties: Option<&[u8]>,
-    ) -> Result<(), ClientError> {
-        self.validate_subscriptions(list, packet_id, SubscriptionType::Subscribe)?;
-
-        if let Some(section) = properties {
-            let available = self.properties.server.subscription_id_available != 0;
-
-            if validate_subscribe_properties(available, section) != Ok(()) {
-                return Err(ClientError::BadParameter);
-            }
-        }
-
-        self.connected()
-    }
-
-    /// `MQTT_Unsubscribe`.
-    ///
-    /// # Errors
-    ///
-    /// As [`subscribe`](Self::subscribe), with only the filter validated.
-    pub fn unsubscribe(
-        &self,
-        list: &[Subscription<'_>],
-        packet_id: u16,
-    ) -> Result<(), ClientError> {
-        self.validate_subscriptions(list, packet_id, SubscriptionType::Unsubscribe)?;
-        self.connected()
-    }
-
     /// `validatePublishParams`.
     ///
     /// # Errors
@@ -458,35 +455,11 @@ impl<'a> MqttContext<'a> {
             return Err(ClientError::BadParameter);
         }
 
-        if self.outgoing_records == 0 && qos != QoS::AtMostOnce {
+        if self.outgoing_records() == 0 && qos != QoS::AtMostOnce {
             return Err(ClientError::BadParameter);
         }
 
         Ok(())
-    }
-
-    /// `MQTT_Publish`, as far as the wire.
-    ///
-    /// # Errors
-    ///
-    /// As [`validate_publish`](Self::validate_publish), then the connection.
-    pub fn publish(
-        &self,
-        qos: QoS,
-        packet_id: u16,
-        topic: &[u8],
-        payload: &[u8],
-    ) -> Result<(), ClientError> {
-        self.validate_publish(qos, packet_id, topic.len(), payload.len())?;
-
-        // `MQTT_ValidatePublishParams` in the serializer refuses an empty topic
-        // with no alias, and `MQTT_Publish` reaches it through
-        // `MQTT_GetPublishPacketSize`.
-        if topic.is_empty() {
-            return Err(ClientError::BadParameter);
-        }
-
-        self.connected()
     }
 }
 
@@ -614,13 +587,20 @@ impl<'a> MqttContext<'a> {
         let mut at = 0usize;
 
         while sent < total {
-            let Some(current) = vectors.get(at).copied() else {
+            let Some(outstanding) = vectors.get(at..) else {
                 break;
             };
 
-            let mut taken = match transport.send(current) {
+            if outstanding.is_empty() {
+                break;
+            }
+
+            let mut taken = match transport.writev(outstanding) {
                 Sent::Bytes(count) => {
-                    let count = count.min(current.len());
+                    // The C asserts that a transport never takes more than the
+                    // whole remaining packet; a library that must not panic
+                    // clamps instead.
+                    let count = count.min(total.saturating_sub(sent));
                     sent = sent.saturating_add(count);
                     self.last_packet_tx_time = clock.now_ms();
                     count
@@ -633,7 +613,10 @@ impl<'a> MqttContext<'a> {
                         self.connect_status = ConnectionStatus::DisconnectPending;
                     }
 
-                    let _ = clock.now_ms();
+                    // And it does NOT read the clock again: this sender's
+                    // timeout check is guarded by `bytesSentOrError >= 0`,
+                    // where `sendBuffer`'s is not. `vec 8 fails-at-once` reads
+                    // the clock once and `ping 9 fails-at-once` reads it twice.
                     return SendOutcome::Failed;
                 }
             };
@@ -659,7 +642,17 @@ impl<'a> MqttContext<'a> {
                 }
             }
 
-            if elapsed_ms(clock.now_ms(), start) >= SEND_TIMEOUT_MS {
+            // **The two senders do not check the timeout the same way**, and
+            // they are thirty lines apart in one file. `sendBuffer` reads the
+            // clock on every turn and compares with `>=`; this one reads it
+            // ONLY when it is about to go round again, and compares with `>`.
+            //
+            // So a step that lands the elapsed time exactly on
+            // `MQTT_SEND_TIMEOUT_MS` stops the buffer sender and does not stop
+            // this one, and a completed vector send reads the clock one time
+            // fewer than a completed buffer send. Both differences are in the
+            // trace; neither is anything but a transcription.
+            if sent < total && elapsed_ms(clock.now_ms(), start) > SEND_TIMEOUT_MS {
                 break;
             }
         }
@@ -796,6 +789,607 @@ impl<'a> MqttContext<'a> {
     }
 }
 
+// ---- the outgoing packets -----------------------------------------------
+
+/// `MQTT_SUB_UNSUB_MAX_VECTORS`: how many vectors one gather may hold.
+///
+/// A SUBSCRIBE spends **three** vectors on a topic — its length, the filter,
+/// the options byte — and an UNSUBSCRIBE spends **two**, and the C's guard is
+/// `ioVectorLength <= MAX - per_topic`. With the default of four that gives an
+/// asymmetry worth stating, because it is entirely invisible in the bytes:
+///
+/// | | first gather | after it |
+/// |---|---|---|
+/// | SUBSCRIBE | header + property length, and **no filter** | one filter |
+/// | UNSUBSCRIBE | header + property length + **one filter** | two filters |
+///
+/// The count is never reset before the filter loop, only after each send, so
+/// the header's own two or three vectors are what the first filter has to fit
+/// around. One MQTT packet comes out either way: the GATHERS are split, not the
+/// stream, and only the call log tells them apart.
+pub const MAX_VECTORS: usize = 4;
+
+/// `CORE_MQTT_SUBSCRIBE_PER_TOPIC_VECTOR_LENGTH`.
+const SUBSCRIBE_PER_TOPIC: usize = 3;
+
+/// `CORE_MQTT_UNSUBSCRIBE_PER_TOPIC_VECTOR_LENGTH`.
+const UNSUBSCRIBE_PER_TOPIC: usize = 2;
+
+/// How many vectors a PUBLISH can need: header, topic, packet id, property
+/// length, properties, payload.
+const PUBLISH_MAX_VECTORS: usize = 6;
+
+// The precondition the C does not state and cannot check.
+//
+// Its guard is `ioVectorLength <= MQTT_SUB_UNSUB_MAX_VECTORS - PER_TOPIC` in
+// **unsigned** arithmetic, so a configuration where the maximum is below the
+// per-topic cost makes the subtraction wrap to `SIZE_MAX`, the guard always
+// true, and the loop write past the end of `pIoVector`. Two is enough to do it,
+// and `MQTT_SUB_UNSUB_MAX_VECTORS` is a documented user-settable macro with no
+// stated minimum. See `docs/upstream/`.
+//
+// Here it is a build error.
+const _: () = assert!(MAX_VECTORS >= SUBSCRIBE_PER_TOPIC);
+const _: () = assert!(MAX_VECTORS >= UNSUBSCRIBE_PER_TOPIC);
+
+/// Somewhere to keep a QoS 1 or 2 PUBLISH until it is acknowledged.
+///
+/// `MQTTStorePacketForRetransmit`. The C hands the application an opaque
+/// `MQTTVec_t` and two functions to measure and flatten it; here the parts
+/// **are** the argument, and [`vector_bytes`] and [`serialize_vector`] are
+/// those two functions with nothing left to hide.
+///
+/// **The copy this is given has the DUP flag raised** and the packet that then
+/// goes on the wire has it clear. See [`MqttContext::publish`].
+pub trait Store {
+    /// Keep this packet. Answering `false` fails the publish, and nothing is
+    /// sent.
+    fn store(&mut self, packet_id: u16, parts: &[&[u8]]) -> bool;
+}
+
+/// A [`Store`] that keeps nothing, for a client that does not retransmit.
+///
+/// `MQTT_InitRetransmits` is optional in the C and its absence is a null
+/// pointer in the context. Here it is an `Option<&mut S>` argument, and this is
+/// the type to name when passing `None` — the whole of that function's body is
+/// four null checks and three assignments, so the parameter is the remake.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoStore;
+
+impl Store for NoStore {
+    fn store(&mut self, _packet_id: u16, _parts: &[&[u8]]) -> bool {
+        false
+    }
+}
+
+/// `MQTT_GetBytesInMQTTVec`: how long the flattened packet would be.
+///
+/// # Errors
+///
+/// [`ClientError::BadParameter`] if the total would overflow, which is the C's
+/// only refusal here.
+pub fn vector_bytes(parts: &[&[u8]]) -> Result<usize, ClientError> {
+    let mut total = 0usize;
+
+    for part in parts {
+        total = total
+            .checked_add(part.len())
+            .ok_or(ClientError::BadParameter)?;
+    }
+
+    Ok(total)
+}
+
+/// `MQTT_SerializeMQTTVec`: flatten the packet into one buffer.
+///
+/// Returns how many bytes were written, or **0** if `destination` will not hold
+/// them — which the C cannot say, because it is a `void` that asserts the
+/// caller sized the buffer with [`vector_bytes`] first. A library that must not
+/// panic has to answer something instead, and zero is the answer no correct
+/// caller ever sees.
+#[must_use]
+pub fn serialize_vector(destination: &mut [u8], parts: &[&[u8]]) -> usize {
+    let Ok(needed) = vector_bytes(parts) else {
+        return 0;
+    };
+
+    if destination.len() < needed {
+        return 0;
+    }
+
+    let mut at = 0usize;
+
+    for part in parts {
+        let end = at.saturating_add(part.len());
+
+        let Some(slot) = destination.get_mut(at..end) else {
+            return 0;
+        };
+
+        slot.copy_from_slice(part);
+        at = end;
+    }
+
+    at
+}
+
+impl<'a> MqttContext<'a> {
+    /// `MQTT_Subscribe`, and the `sendSubscribeWithoutCopy` it drives.
+    ///
+    /// The filters are **not copied**: they stay in the caller's buffers and
+    /// the transport gathers them.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::BadParameter`] from the validators or the size
+    /// calculator, [`ClientError::NotConnected`] or
+    /// [`ClientError::DisconnectPending`] from the connection, and
+    /// [`ClientError::SendFailed`] if a gather did not go out whole.
+    pub fn subscribe<T: Transport, C: Clock>(
+        &mut self,
+        transport: &mut T,
+        clock: &mut C,
+        list: &[Subscription<'_>],
+        packet_id: u16,
+        properties: &[u8],
+    ) -> Result<(), ClientError> {
+        self.send_list(transport, clock, list, packet_id, properties, true)
+    }
+
+    /// `MQTT_Unsubscribe`, and the `sendUnsubscribeWithoutCopy` it drives.
+    ///
+    /// # Errors
+    ///
+    /// As [`subscribe`](Self::subscribe), with only the filters validated and
+    /// no options byte on the wire.
+    pub fn unsubscribe<T: Transport, C: Clock>(
+        &mut self,
+        transport: &mut T,
+        clock: &mut C,
+        list: &[Subscription<'_>],
+        packet_id: u16,
+        properties: &[u8],
+    ) -> Result<(), ClientError> {
+        self.send_list(transport, clock, list, packet_id, properties, false)
+    }
+
+    /// The body both of them are.
+    ///
+    /// The C has two functions of 130 lines each that differ in a packet type,
+    /// a property validator, a per-topic vector count and one `if`. Writing
+    /// them out twice here would be the guard's twenty-second shape — *two arms
+    /// that never disagree are one arm driven twice* — so `subscribing` is that
+    /// difference, named.
+    fn send_list<T: Transport, C: Clock>(
+        &mut self,
+        transport: &mut T,
+        clock: &mut C,
+        list: &[Subscription<'_>],
+        packet_id: u16,
+        properties: &[u8],
+        subscribing: bool,
+    ) -> Result<(), ClientError> {
+        let which = if subscribing {
+            SubscriptionType::Subscribe
+        } else {
+            SubscriptionType::Unsubscribe
+        };
+
+        self.validate_subscriptions(list, packet_id, which)?;
+
+        if !properties.is_empty() {
+            if subscribing {
+                let available = self.properties.server.subscription_id_available != 0;
+
+                validate_subscribe_properties(available, properties)?;
+            } else {
+                validate_unsubscribe_properties(properties)?;
+            }
+        }
+
+        let property_length =
+            u32::try_from(properties.len()).map_err(|_| ClientError::BadParameter)?;
+        let lengths = list.iter().map(|entry| entry.topic_filter.len());
+        let max = self.properties.server.max_packet_size;
+
+        let size = if subscribing {
+            crate::size::subscribe_packet_size(lengths, property_length, max)
+        } else {
+            crate::size::unsubscribe_packet_size(lengths, property_length, max)
+        }
+        .map_err(|_| ClientError::BadParameter)?;
+
+        self.connected()?;
+
+        // One type byte, at most four of remaining length, two of packet id.
+        let mut fixed = [0u8; 7];
+        let header = if subscribing {
+            crate::writer::serialize_subscribe_header(&mut fixed, size.remaining_length, packet_id)
+        } else {
+            crate::writer::serialize_unsubscribe_header(
+                &mut fixed,
+                size.remaining_length,
+                packet_id,
+            )
+        };
+
+        if header == 0 {
+            return Err(ClientError::SendFailed);
+        }
+
+        let mut length_field = [0u8; 4];
+        let length_written =
+            crate::header::encode_variable_length(&mut length_field, property_length);
+
+        let Some(head) = fixed.get(..header) else {
+            return Err(ClientError::SendFailed);
+        };
+        let Some(prefix) = length_field.get(..length_written) else {
+            return Err(ClientError::SendFailed);
+        };
+
+        // The header, the encoded property length, and the section when there
+        // is one. These are CARRIED INTO the first gather rather than sent on
+        // their own -- see [`MAX_VECTORS`].
+        let carried: [&[u8]; 3] = [head, prefix, properties];
+        let carried_count = if properties.is_empty() { 2 } else { 3 };
+        let carried_bytes =
+            header
+                .saturating_add(length_written)
+                .saturating_add(if properties.is_empty() {
+                    0
+                } else {
+                    properties.len()
+                });
+
+        let per_topic = if subscribing {
+            SUBSCRIBE_PER_TOPIC
+        } else {
+            UNSUBSCRIBE_PER_TOPIC
+        };
+        let room = MAX_VECTORS.saturating_sub(per_topic);
+
+        let mut at = 0usize;
+        let mut first = true;
+
+        while first || at < list.len() {
+            // The two little buffers the vectors point INTO live inside the
+            // loop, so the gather that borrows them cannot outlive them. The
+            // C's are function-scoped and it rewinds its iterator instead --
+            // which is the same thing said in a language that will not check
+            // it.
+            let mut fields = [[0u8; 2]; MAX_VECTORS];
+            let mut options = [0u8; MAX_VECTORS];
+
+            let mut used = if first { carried_count } else { 0 };
+            let mut taken = 0usize;
+
+            while used <= room && at.saturating_add(taken) < list.len() {
+                let Some(entry) = list.get(at.saturating_add(taken)) else {
+                    break;
+                };
+
+                // The one refusal inside the loop that a slice can still reach.
+                if u16::try_from(entry.topic_filter.len()).is_err() {
+                    return Err(ClientError::BadParameter);
+                }
+
+                let filter_length = u16::try_from(entry.topic_filter.len()).unwrap_or(u16::MAX);
+
+                let Some(field) = fields.get_mut(taken) else {
+                    break;
+                };
+
+                *field = filter_length.to_be_bytes();
+
+                // `addEncodedStringToVector` adds the length field always, and
+                // the string only when it has bytes.
+                used = used.saturating_add(1);
+
+                if !entry.topic_filter.is_empty() {
+                    used = used.saturating_add(1);
+                }
+
+                if subscribing {
+                    if let Some(byte) = options.get_mut(taken) {
+                        *byte = subscription_options(entry);
+                    }
+
+                    used = used.saturating_add(1);
+                }
+
+                taken = taken.saturating_add(1);
+            }
+
+            let mut parts: [&[u8]; MAX_VECTORS] = [&[]; MAX_VECTORS];
+            let mut count = 0usize;
+            let mut total = 0usize;
+
+            // How many vectors this gather WANTED, which is `count` unless the
+            // array was too small. The C has no equivalent: it writes past
+            // `pIoVector[MQTT_SUB_UNSUB_MAX_VECTORS]` and carries on. Getting
+            // `per_topic` one too small is all it takes -- see the module note
+            // and `docs/upstream/`.
+            let mut wanted = 0usize;
+
+            if first {
+                for part in carried.iter().take(carried_count) {
+                    wanted = wanted.saturating_add(1);
+
+                    if let Some(slot) = parts.get_mut(count) {
+                        *slot = part;
+                        count = count.saturating_add(1);
+                    }
+                }
+
+                total = carried_bytes;
+            }
+
+            for index in 0..taken {
+                let Some(entry) = list.get(at.saturating_add(index)) else {
+                    break;
+                };
+                let Some(field) = fields.get(index) else {
+                    break;
+                };
+
+                wanted = wanted.saturating_add(1);
+
+                if let Some(slot) = parts.get_mut(count) {
+                    *slot = field.as_slice();
+                    count = count.saturating_add(1);
+                }
+
+                total = total.saturating_add(2);
+
+                if !entry.topic_filter.is_empty() {
+                    wanted = wanted.saturating_add(1);
+
+                    if let Some(slot) = parts.get_mut(count) {
+                        *slot = entry.topic_filter;
+                        count = count.saturating_add(1);
+                    }
+
+                    total = total.saturating_add(entry.topic_filter.len());
+                }
+
+                if subscribing {
+                    wanted = wanted.saturating_add(1);
+
+                    if let Some(byte) = options.get(index..index.saturating_add(1)) {
+                        if let Some(slot) = parts.get_mut(count) {
+                            *slot = byte;
+                            count = count.saturating_add(1);
+                        }
+                    }
+
+                    total = total.saturating_add(1);
+                }
+            }
+
+            if wanted != count {
+                return Err(ClientError::SendFailed);
+            }
+
+            let Some(gather) = parts.get_mut(..count) else {
+                return Err(ClientError::SendFailed);
+            };
+
+            match self.send_vectors(transport, clock, gather) {
+                SendOutcome::Sent(sent) if sent == total => {}
+                _ => return Err(ClientError::SendFailed),
+            }
+
+            at = at.saturating_add(taken);
+            first = false;
+        }
+
+        Ok(())
+    }
+
+    /// `MQTT_Publish`, and the `sendPublishWithoutCopy` it drives.
+    ///
+    /// The topic name and the payload are **not copied**.
+    ///
+    /// # The stored copy and the sent copy differ by one bit
+    ///
+    /// A QoS 1 or 2 PUBLISH is handed to `store` **before** it is sent, and the
+    /// header it is handed has the DUP flag raised — because what comes back
+    /// out of a retransmit store is a list of `const` pointers that cannot be
+    /// patched afterwards. The C raises the bit in the buffer, calls the store,
+    /// and lowers it again; the packet on the wire has DUP clear. So the two
+    /// copies of the same packet are one byte apart, on purpose, and
+    /// `qos1-stored` in the trace is the case that shows it.
+    ///
+    /// If `publish.dup` was already set nothing is changed and both copies
+    /// carry it. And if the store **refuses**, the C never lowers the bit —
+    /// unobservable, because nothing is then sent.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::BadParameter`] from the validators,
+    /// [`ClientError::NotConnected`], [`ClientError::State`] if that packet
+    /// identifier is already in flight, [`ClientError::PublishStoreFailed`] if
+    /// `store` refused the copy, and [`ClientError::SendFailed`].
+    pub fn publish<T: Transport, C: Clock, S: Store>(
+        &mut self,
+        transport: &mut T,
+        clock: &mut C,
+        store: Option<&mut S>,
+        publish: &OutgoingPublish<'_>,
+        packet_id: u16,
+    ) -> Result<(), ClientError> {
+        self.validate_publish(
+            publish.qos,
+            packet_id,
+            publish.topic_name.len(),
+            publish.payload.len(),
+        )?;
+
+        let mut topic_alias = None;
+
+        if !publish.properties.is_empty() {
+            validate_publish_properties(
+                self.properties.server.topic_alias_max,
+                publish.properties,
+                &mut topic_alias,
+            )?;
+        }
+
+        validate_publish_params(
+            publish,
+            self.properties.server.retain_available,
+            self.properties.server.max_qos,
+            topic_alias.unwrap_or(0),
+            self.properties.server.max_packet_size,
+        )?;
+
+        let size =
+            crate::outpublish::publish_packet_size(publish, self.properties.server.max_packet_size)
+                .map_err(|_| ClientError::BadParameter)?;
+
+        // One type byte, at most four of remaining length, two of topic length.
+        // The topic LENGTH is in the fixed header and the topic is not: the C
+        // moved it there to save a vector and a `send`, "since publish is one
+        // of the most common operations".
+        let mut header = [0u8; 7];
+        let header_size = crate::outpublish::serialize_publish_header_without_topic(
+            &mut header,
+            publish,
+            size.remaining_length,
+        )
+        .map_err(|_| ClientError::BadParameter)?;
+
+        self.connected()?;
+
+        if publish.qos != QoS::AtMostOnce {
+            if let Some(records) = self.records.as_mut() {
+                match records.reserve(packet_id, publish.qos) {
+                    Ok(()) => {}
+
+                    // A collision on a packet the caller says is a re-delivery
+                    // is not an error: the record it collided with is the one
+                    // being re-sent.
+                    Err(StateError::StateCollision) if publish.dup => {}
+
+                    Err(error) => return Err(ClientError::State(error)),
+                }
+            }
+        }
+
+        let id_bytes = packet_id.to_be_bytes();
+        let property_length =
+            u32::try_from(publish.properties.len()).map_err(|_| ClientError::BadParameter)?;
+        let mut length_field = [0u8; 4];
+        let length_written =
+            crate::header::encode_variable_length(&mut length_field, property_length);
+
+        // Build the store's header before anything borrows the wire one.
+        let mut dup_header = header;
+
+        if !publish.dup {
+            if let Some(byte) = dup_header.first_mut() {
+                crate::outpublish::update_duplicate_flag(byte, true)
+                    .map_err(|_| ClientError::BadParameter)?;
+            }
+        }
+
+        let Some(head) = header.get(..header_size) else {
+            return Err(ClientError::SendFailed);
+        };
+        let Some(dup_head) = dup_header.get(..header_size) else {
+            return Err(ClientError::SendFailed);
+        };
+        let Some(prefix) = length_field.get(..length_written) else {
+            return Err(ClientError::SendFailed);
+        };
+
+        let mut parts: [&[u8]; PUBLISH_MAX_VECTORS] = [&[]; PUBLISH_MAX_VECTORS];
+        let mut count = 0usize;
+        let mut total = 0usize;
+
+        for part in [head, publish.topic_name] {
+            if let Some(slot) = parts.get_mut(count) {
+                *slot = part;
+                count = count.saturating_add(1);
+                total = total.saturating_add(part.len());
+            }
+        }
+
+        if publish.qos != QoS::AtMostOnce {
+            if let Some(slot) = parts.get_mut(count) {
+                *slot = id_bytes.as_slice();
+                count = count.saturating_add(1);
+                total = total.saturating_add(2);
+            }
+        }
+
+        if let Some(slot) = parts.get_mut(count) {
+            *slot = prefix;
+            count = count.saturating_add(1);
+            total = total.saturating_add(length_written);
+        }
+
+        if !publish.properties.is_empty() {
+            if let Some(slot) = parts.get_mut(count) {
+                *slot = publish.properties;
+                count = count.saturating_add(1);
+                total = total.saturating_add(publish.properties.len());
+            }
+        }
+
+        // A PUBLISH is allowed to carry no payload, and then there is no vector
+        // for it -- which is why `qos0-no-payload` is three calls and `qos0` is
+        // four.
+        if !publish.payload.is_empty() {
+            if let Some(slot) = parts.get_mut(count) {
+                *slot = publish.payload;
+                count = count.saturating_add(1);
+                total = total.saturating_add(publish.payload.len());
+            }
+        }
+
+        if publish.qos != QoS::AtMostOnce {
+            if let Some(keeper) = store {
+                let mut copy = parts;
+
+                if let Some(slot) = copy.first_mut() {
+                    *slot = dup_head;
+                }
+
+                let Some(view) = copy.get(..count) else {
+                    return Err(ClientError::SendFailed);
+                };
+
+                if !keeper.store(packet_id, view) {
+                    return Err(ClientError::PublishStoreFailed);
+                }
+            }
+        }
+
+        let Some(gather) = parts.get_mut(..count) else {
+            return Err(ClientError::SendFailed);
+        };
+
+        match self.send_vectors(transport, clock, gather) {
+            SendOutcome::Sent(sent) if sent == total => {}
+            _ => return Err(ClientError::SendFailed),
+        }
+
+        if publish.qos != QoS::AtMostOnce {
+            if let Some(records) = self.records.as_mut() {
+                // The C logs a failure here and returns it, "However PUBLISH
+                // packet was sent to the broker".
+                let _ = records
+                    .update_publish(packet_id, crate::state::Operation::Send, publish.qos)
+                    .map_err(ClientError::State)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -807,9 +1401,13 @@ impl<'a> MqttContext<'a> {
 mod tests {
     use super::*;
 
-    fn context(buffer: &mut [u8]) -> MqttContext<'_> {
+    fn context<'a>(
+        buffer: &'a mut [u8],
+        outgoing: &'a mut [Record],
+        incoming: &'a mut [Record],
+    ) -> MqttContext<'a> {
         let mut client = MqttContext::new(buffer);
-        client.enable_qos(4, 4, 0);
+        client.enable_qos(outgoing, incoming, 0);
         client
     }
 
@@ -821,6 +1419,51 @@ mod tests {
             retain_as_published: false,
             retain_handling: RetainHandling::OnSubscribe,
         }
+    }
+
+    /// Two poisons this slice could not make fail, and the CONSTANT that is
+    /// why.
+    ///
+    /// A gather takes filters while `used <= MAX_VECTORS - per_topic`, so what
+    /// that subtraction comes to decides everything. At the shipped four:
+    ///
+    /// | | room | one filter costs | filters per gather |
+    /// |---|---|---|---|
+    /// | SUBSCRIBE | 1 | 2 or 3 | one, always |
+    /// | UNSUBSCRIBE | 2 | 2 | two, or one after the header |
+    ///
+    /// A SUBSCRIBE's room is **one** and a filter costs **at least two**, so
+    /// the first filter always ends the gather — whether or not the options
+    /// byte is counted. That is why "the vector count does not charge for the
+    /// options byte" changes no line of the trace: at this maximum it cannot.
+    /// It is not a property of the code, it is a property of the number, and
+    /// the number is what this test pins.
+    ///
+    /// The same arithmetic is why "an over-full gather is refused" never fires:
+    /// `room + per_topic == MAX_VECTORS` exactly, so a correct loop cannot ask
+    /// for more room than there is. The refusal is there for a maximum that is
+    /// not four, and the `const` assertions above are what stop the one value
+    /// that would make it unreachable AND wrong.
+    #[test]
+    fn the_gather_geometry_is_decided_by_a_constant() {
+        let subscribe_room = MAX_VECTORS - SUBSCRIBE_PER_TOPIC;
+        let unsubscribe_room = MAX_VECTORS - UNSUBSCRIBE_PER_TOPIC;
+
+        assert_eq!(subscribe_room, 1);
+        assert_eq!(unsubscribe_room, 2);
+
+        // The cheapest a filter can be is its length field plus its bytes.
+        const CHEAPEST_FILTER: usize = 2;
+
+        assert!(
+            CHEAPEST_FILTER > subscribe_room,
+            "a SUBSCRIBE could take two filters in a gather, and the options \
+             byte would then be load-bearing"
+        );
+
+        // And a correct loop can never want more vectors than there are.
+        assert_eq!(subscribe_room + SUBSCRIBE_PER_TOPIC, MAX_VECTORS);
+        assert_eq!(unsubscribe_room + UNSUBSCRIBE_PER_TOPIC, MAX_VECTORS);
     }
 
     /// The elapsed-time arithmetic must wrap, and a wrong one does not answer
@@ -866,7 +1509,9 @@ mod tests {
     #[test]
     fn only_the_last_subscription_decides() {
         let mut buffer = [0u8; 64];
-        let client = context(&mut buffer);
+        let mut outgoing = [Record::default(); 4];
+        let mut incoming = [Record::default(); 4];
+        let client = context(&mut buffer, &mut outgoing, &mut incoming);
 
         let good = plain(b"a/b");
         let bad = plain(b"");
@@ -912,8 +1557,10 @@ mod tests {
     #[test]
     fn the_qos_loop_reports_the_whole_list_and_the_other_does_not() {
         let mut buffer = [0u8; 64];
+        let mut outgoing = [Record::default(); 4];
+        let mut incoming: [Record; 0] = [];
         let mut client = MqttContext::new(&mut buffer);
-        client.enable_qos(4, 0, 0);
+        client.enable_qos(&mut outgoing, &mut incoming, 0);
 
         let mut qos1 = plain(b"a/b");
         qos1.qos = QoS::AtLeastOnce;
@@ -933,7 +1580,9 @@ mod tests {
     #[test]
     fn an_unsubscribe_checks_only_the_filter() {
         let mut buffer = [0u8; 64];
-        let client = context(&mut buffer);
+        let mut outgoing = [Record::default(); 4];
+        let mut incoming = [Record::default(); 4];
+        let client = context(&mut buffer, &mut outgoing, &mut incoming);
 
         // A shared subscription with no share name is malformed for a
         // SUBSCRIBE and unremarkable for an UNSUBSCRIBE.
@@ -979,7 +1628,9 @@ mod tests {
     #[test]
     fn a_shared_subscription_needs_a_name_and_a_filter_after_it() {
         let mut buffer = [0u8; 64];
-        let client = context(&mut buffer);
+        let mut outgoing = [Record::default(); 4];
+        let mut incoming = [Record::default(); 4];
+        let client = context(&mut buffer, &mut outgoing, &mut incoming);
 
         let check = |filter: &[u8]| {
             client.validate_subscriptions(&[plain(filter)], 1, SubscriptionType::Subscribe)
@@ -1014,7 +1665,9 @@ mod tests {
     #[test]
     fn a_wildcard_past_the_filters_length_is_not_in_the_filter() {
         let mut buffer = [0u8; 64];
-        let mut client = context(&mut buffer);
+        let mut outgoing = [Record::default(); 4];
+        let mut incoming = [Record::default(); 4];
+        let mut client = context(&mut buffer, &mut outgoing, &mut incoming);
         client.properties.server.wildcard_available = 0;
 
         // `abc#`, of which the filter is only `abc`.
