@@ -86,6 +86,9 @@ pub mod client;
 /// Opening a connection: CONNECT, CONNACK and what a resumed session owes.
 pub mod session;
 
+/// The receive loop and the acknowledgements that come out of it.
+pub mod loop_;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };

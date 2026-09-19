@@ -268,3 +268,10 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG    -I "$lib/source/include"    -I "
 
 "$here/session_driver" > "$here/session.trace"
 echo "wrote $(wc -l < "$here/session.trace") lines to $here/session.trace"
+
+# The receive-loop differential's C arm: the transport in both directions, the
+# clock, and the APPLICATION CALLBACK, which is the third input.
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG    -I "$lib/source/include"    -I "$lib/source/interface"    -o "$here/loop_driver"    "$core" "$src" "$ser" "$priv" "$props" "$propd" "$here/loop_driver.c"
+
+"$here/loop_driver" > "$here/loop.trace"
+echo "wrote $(wc -l < "$here/loop.trace") lines to $here/loop.trace"

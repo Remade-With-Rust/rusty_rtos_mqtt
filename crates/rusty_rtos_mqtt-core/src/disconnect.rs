@@ -68,6 +68,13 @@ pub struct DisconnectSize {
     pub packet_size: u32,
 }
 
+/// The reason codes this library sends of its own accord.
+pub mod reason {
+    /// `MQTT_REASON_DISCONNECT_MALFORMED_PACKET`: what the receive loop sends
+    /// back when a broker's DISCONNECT will not parse.
+    pub const MALFORMED_PACKET: u8 = 0x81;
+}
+
 /// Why a DISCONNECT was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisconnectError {

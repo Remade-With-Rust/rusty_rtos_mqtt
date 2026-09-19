@@ -40,6 +40,7 @@
 use crate::context::ConnectionProperties;
 use crate::outbound::subscription_options;
 use crate::outpublish::OutgoingPublish;
+use crate::publish::PublishInfo;
 use crate::reader::{Sent, Transport};
 use crate::state::{PublishRecords, QoS, Record, StateError};
 use crate::validate::{
@@ -98,7 +99,59 @@ pub enum ClientError {
     /// of the retransmit store and did not get it.
     PublishRetrieveFailed,
     /// `MQTTNoDataAvailable`: nothing had arrived yet.
+    ///
+    /// The receive loop **resets this to success** before returning, because
+    /// "no data available is not an error"; it is visible only inside.
     NoDataAvailable,
+    /// `MQTTNeedMoreBytes`: part of a packet is in the buffer and the rest is
+    /// not. The bytes stay put and the next call continues them.
+    NeedMoreBytes,
+    /// `MQTTEventCallbackFailed`: the application answered `false`.
+    ///
+    /// The packet has already been consumed when this is raised, and the C's
+    /// comment beside every one of its call sites is a TODO asking whether it
+    /// should be re-delivered.
+    EventCallbackFailed,
+    /// `MQTTKeepAliveTimeout`: a PINGRESP did not arrive in time.
+    KeepAliveTimeout,
+}
+
+impl From<crate::header::HeaderError> for ClientError {
+    fn from(error: crate::header::HeaderError) -> Self {
+        match error {
+            crate::header::HeaderError::NoDataAvailable => Self::NoDataAvailable,
+            crate::header::HeaderError::NeedMoreBytes => Self::NeedMoreBytes,
+            crate::header::HeaderError::BadResponse => Self::BadResponse,
+        }
+    }
+}
+
+impl From<crate::publish::PublishError> for ClientError {
+    fn from(error: crate::publish::PublishError) -> Self {
+        match error {
+            crate::publish::PublishError::BadParameter => Self::BadParameter,
+            crate::publish::PublishError::BadResponse => Self::BadResponse,
+        }
+    }
+}
+
+impl From<crate::ack::AckError> for ClientError {
+    fn from(error: crate::ack::AckError) -> Self {
+        match error {
+            crate::ack::AckError::BadParameter => Self::BadParameter,
+            crate::ack::AckError::BadResponse => Self::BadResponse,
+        }
+    }
+}
+
+impl From<crate::disconnect::DisconnectError> for ClientError {
+    fn from(error: crate::disconnect::DisconnectError) -> Self {
+        match error {
+            crate::disconnect::DisconnectError::BadParameter => Self::BadParameter,
+            crate::disconnect::DisconnectError::BadResponse => Self::BadResponse,
+            crate::disconnect::DisconnectError::NoMemory => Self::SendFailed,
+        }
+    }
 }
 
 impl From<crate::reader::ReadError> for ClientError {
@@ -161,7 +214,11 @@ pub struct MqttContext<'a> {
     pub(crate) network: &'a mut [u8],
     next_packet_id: u16,
     pub(crate) records: Option<PublishRecords<'a>>,
-    ack_properties: usize,
+    /// `ackPropsBuffer`: where the application writes properties for the
+    /// acknowledgement the library is about to send.
+    pub(crate) ack_properties: &'a mut [u8],
+    /// How much of it is in use. `MQTTPropBuilder_t.currentIndex`.
+    pub(crate) ack_used: usize,
     /// When the last byte went out, by the caller's clock.
     pub(crate) last_packet_tx_time: u32,
     /// When the last byte came in.
@@ -201,7 +258,8 @@ impl<'a> MqttContext<'a> {
             // Zero is not a valid packet identifier, so the first one is 1.
             next_packet_id: 1,
             records: None,
-            ack_properties: 0,
+            ack_properties: &mut [],
+            ack_used: 0,
             last_packet_tx_time: 0,
             last_packet_rx_time: 0,
             ping_req_send_time: 0,
@@ -274,10 +332,11 @@ impl<'a> MqttContext<'a> {
         &mut self,
         outgoing: &'a mut [Record],
         incoming: &'a mut [Record],
-        ack_properties: usize,
+        ack_properties: &'a mut [u8],
     ) {
         self.records = Some(PublishRecords::new(outgoing, incoming));
         self.ack_properties = ack_properties;
+        self.ack_used = 0;
     }
 
     /// How many outgoing QoS records there is room for.
@@ -315,6 +374,48 @@ impl<'a> MqttContext<'a> {
             .map_or(&[], |records| records.incoming())
     }
 
+    /// The two record arrays, to write to.
+    ///
+    /// Both at once, because a caller restoring a session has entries for each
+    /// and cannot borrow them one at a time.
+    pub fn records_mut(&mut self) -> (&mut [Record], &mut [Record]) {
+        match self.records.as_mut() {
+            Some(records) => records.both_mut(),
+            None => (&mut [], &mut []),
+        }
+    }
+
+    /// Set the keep alive the session runs under, in seconds.
+    ///
+    /// Everything below is a field the C's application writes DIRECTLY, its
+    /// context being an open struct — a client restoring a session across a
+    /// reboot has to put them back, and the C's own tests set every one of
+    /// them. They are here for the same reason and with the same caveat: the
+    /// library will overwrite them as the connection runs.
+    pub const fn set_keep_alive_seconds(&mut self, seconds: u16) {
+        self.keep_alive_seconds = seconds;
+    }
+
+    /// Set whether a PINGRESP is owed.
+    pub const fn set_waiting_for_ping_resp(&mut self, waiting: bool) {
+        self.waiting_for_ping_resp = waiting;
+    }
+
+    /// Set when the last byte went out.
+    pub const fn set_last_packet_tx_time(&mut self, now: u32) {
+        self.last_packet_tx_time = now;
+    }
+
+    /// Set when the last byte came in.
+    pub const fn set_last_packet_rx_time(&mut self, now: u32) {
+        self.last_packet_rx_time = now;
+    }
+
+    /// Set when the outstanding PINGREQ went out.
+    pub const fn set_ping_req_send_time(&mut self, now: u32) {
+        self.ping_req_send_time = now;
+    }
+
     /// The outgoing records, to write to.
     ///
     /// The C's array belongs to the APPLICATION — `MQTT_InitStatefulQoS` is
@@ -345,7 +446,13 @@ impl<'a> MqttContext<'a> {
     /// How much room an acknowledgement's properties have.
     #[must_use]
     pub const fn ack_properties(&self) -> usize {
-        self.ack_properties
+        self.ack_properties.len()
+    }
+
+    /// How much of that room the application has used.
+    #[must_use]
+    pub const fn ack_used(&self) -> usize {
+        self.ack_used
     }
 
     /// `MQTT_CheckConnectStatus`.
@@ -882,6 +989,128 @@ impl<'a> MqttContext<'a> {
 }
 
 // ---- the outgoing packets -----------------------------------------------
+
+/// What arrived, as the application sees it.
+///
+/// The C splits this across `MQTTPacketInfo_t` and `MQTTDeserializedInfo_t` and
+/// hands both to the callback; here they are one thing, because no caller ever
+/// gets one without the other.
+#[derive(Debug, Clone, Copy)]
+pub struct Event<'a> {
+    /// The packet type byte, flags and all. A PUBLISH is `0x30..=0x3F`.
+    pub packet_type: u8,
+    /// The packet identifier, or 0 where the packet carries none.
+    pub packet_id: u16,
+    /// Present only for a PUBLISH.
+    pub publish: Option<PublishInfo<'a>>,
+    /// The reason codes: none, one, or one per topic filter for a SUBACK.
+    pub reason_codes: &'a [u8],
+    /// The property section the packet carried, without its length prefix.
+    pub properties: &'a [u8],
+}
+
+/// Where the application may put a reason code and properties for the
+/// acknowledgement the library is about to send back.
+///
+/// The C passes two pointers that are **NULL** when no reply is wanted — for a
+/// QoS 0 PUBLISH, for a PUBACK or PUBCOMP, for a PINGRESP — and the application
+/// is expected to check. Here "no reply is wanted" is
+/// [`accepted`](Self::accepted) answering `false`, and a reply written anyway
+/// is simply dropped rather than being a null dereference.
+#[derive(Debug)]
+pub struct AckReply<'a> {
+    accepted: bool,
+    reason_code: Option<u8>,
+    buffer: &'a mut [u8],
+    used: usize,
+}
+
+impl<'a> AckReply<'a> {
+    /// The library's own constructor. Applications receive one; they do not
+    /// build one.
+    pub(crate) fn new(accepted: bool, buffer: &'a mut [u8], used: usize) -> Self {
+        Self {
+            accepted,
+            reason_code: None,
+            buffer,
+            used,
+        }
+    }
+
+    /// How much of the buffer is in use after the application had its turn.
+    pub(crate) const fn used(&self) -> usize {
+        self.used
+    }
+
+    /// Whether this event wants a reply at all.
+    #[must_use]
+    pub const fn accepted(&self) -> bool {
+        self.accepted
+    }
+
+    /// Set the reason code the acknowledgement will carry.
+    pub const fn set_reason_code(&mut self, reason_code: u8) {
+        if self.accepted {
+            self.reason_code = Some(reason_code);
+        }
+    }
+
+    /// The reason code the application set, if it set one.
+    #[must_use]
+    pub const fn reason_code(&self) -> Option<u8> {
+        self.reason_code
+    }
+
+    /// Build properties for the acknowledgement.
+    ///
+    /// The closure is not run at all when the context was given no buffer, or
+    /// when this event wants no reply — which is the C's "the pointer it handed
+    /// you was NULL", turned into something a caller cannot dereference.
+    ///
+    /// How much was written is taken from the builder afterwards, so a caller
+    /// cannot forget to hand it back.
+    pub fn with_properties<F>(&mut self, build: F)
+    where
+        F: FnOnce(&mut crate::builder::PropertyBuilder<'_>),
+    {
+        if !self.accepted || self.buffer.is_empty() {
+            return;
+        }
+
+        // RESUMED, not started: the C's builder lives in the context and its
+        // index survives between acknowledgements, so an adder appends to
+        // whatever is already there. That is what makes emptying it after a
+        // send load-bearing.
+        let Ok(mut builder) = crate::builder::PropertyBuilder::resume(self.buffer, self.used)
+        else {
+            return;
+        };
+
+        build(&mut builder);
+        self.used = builder.len();
+    }
+}
+
+/// `MQTTEventCallback_t`: the application, called once per packet.
+///
+/// Answering `false` is `MQTTEventCallbackFailed`, and the C's comment beside
+/// every one of its call sites is a TODO asking whether that should stop the
+/// library processing further packets. It does not; the status is returned and
+/// the loop has already consumed the packet.
+pub trait EventHandler {
+    /// One packet arrived. Answer `false` to report a failure.
+    fn on_event(&mut self, event: &Event<'_>, reply: &mut AckReply<'_>) -> bool;
+}
+
+/// An [`EventHandler`] that accepts everything and replies to nothing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IgnoreEvents;
+
+impl EventHandler for IgnoreEvents {
+    fn on_event(&mut self, _event: &Event<'_>, _reply: &mut AckReply<'_>) -> bool {
+        true
+    }
+}
 
 /// `MQTT_SUB_UNSUB_MAX_VECTORS`: how many vectors one gather may hold.
 ///
@@ -1525,7 +1754,7 @@ mod tests {
         incoming: &'a mut [Record],
     ) -> MqttContext<'a> {
         let mut client = MqttContext::new(buffer);
-        client.enable_qos(outgoing, incoming, 0);
+        client.enable_qos(outgoing, incoming, &mut []);
         client
     }
 
@@ -1736,7 +1965,7 @@ mod tests {
         let mut outgoing = [Record::default(); 4];
         let mut incoming: [Record; 0] = [];
         let mut client = MqttContext::new(&mut buffer);
-        client.enable_qos(&mut outgoing, &mut incoming, 0);
+        client.enable_qos(&mut outgoing, &mut incoming, &mut []);
 
         let mut qos1 = plain(b"a/b");
         qos1.qos = QoS::AtLeastOnce;

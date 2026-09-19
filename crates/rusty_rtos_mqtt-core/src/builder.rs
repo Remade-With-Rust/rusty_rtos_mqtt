@@ -133,6 +133,30 @@ impl<'a> PropertyBuilder<'a> {
         })
     }
 
+    /// Carry on writing into a buffer that already holds `at` bytes.
+    ///
+    /// The C's builder is a STRUCT the application keeps, so its `currentIndex`
+    /// survives from one use to the next and an adder appends. A builder that
+    /// always started at zero would agree with it everywhere the index happens
+    /// to be reset — and a poison on that reset could then never fire, which is
+    /// how this function came to exist.
+    ///
+    /// # Errors
+    ///
+    /// As [`new`](Self::new), plus [`BuilderError::TooLong`] if `at` is past
+    /// the end of the buffer.
+    pub fn resume(buffer: &'a mut [u8], at: usize) -> Result<Self, BuilderError> {
+        if at > buffer.len() {
+            return Err(BuilderError::TooLong);
+        }
+
+        let mut builder = Self::new(buffer)?;
+
+        builder.at = at;
+
+        Ok(builder)
+    }
+
     /// How many bytes have been written: the C's `currentIndex`.
     ///
     /// This doubles as the section's **property length**, which is what every

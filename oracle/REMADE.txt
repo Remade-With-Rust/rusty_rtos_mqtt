@@ -171,7 +171,20 @@ getPropUint32
 getPropUint8
 getPropUtf8
 
-# --- core_mqtt.c (47 of 60) ---
+# --- core_mqtt.c (60 of 60) ---
+MQTT_ProcessLoop
+MQTT_ReceiveLoop
+buildAndSendAckWithProps
+handleIncomingAck
+handleIncomingDisconnect
+handleIncomingPublish
+handleKeepAlive
+handlePublishAcks
+handleSubUnsubAck
+receiveSingleIteration
+sendPublishAcksWithProperty
+sendPublishAcksWithoutProperty
+validatePublishAckReasonCode
 MQTT_Connect
 addStringToVectorChecked
 appendWillVectors

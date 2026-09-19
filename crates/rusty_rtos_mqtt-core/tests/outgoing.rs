@@ -211,6 +211,9 @@ fn status(result: Result<(), ClientError>) -> &'static str {
         Err(ClientError::StatusConnected) => "StatusConnected",
         Err(ClientError::PublishRetrieveFailed) => "PublishRetrieveFailed",
         Err(ClientError::NoDataAvailable) => "NoDataAvailable",
+        Err(ClientError::NeedMoreBytes) => "NeedMoreBytes",
+        Err(ClientError::EventCallbackFailed) => "EventCallbackFailed",
+        Err(ClientError::KeepAliveTimeout) => "KeepAliveTimeout",
         Err(ClientError::State(error)) => match error {
             rusty_rtos_mqtt_core::state::StateError::StateCollision => "StateCollision",
             rusty_rtos_mqtt_core::state::StateError::BadParameter => "BadParameter",
@@ -291,7 +294,7 @@ fn context<'a>(
     connected: bool,
 ) -> MqttContext<'a> {
     let mut client = MqttContext::new(buffer);
-    client.enable_qos(outgoing, incoming, 0);
+    client.enable_qos(outgoing, incoming, &mut []);
 
     if connected {
         client.connect_status = ConnectionStatus::Connected;
@@ -620,7 +623,7 @@ fn rust_arm() -> String {
                 let mut client = MqttContext::new(&mut buffer);
 
                 if stateful {
-                    client.enable_qos(&mut outgoing, &mut incoming, 0);
+                    client.enable_qos(&mut outgoing, &mut incoming, &mut []);
                 }
 
                 client.connect_status = ConnectionStatus::Connected;

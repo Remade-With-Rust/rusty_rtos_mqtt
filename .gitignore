@@ -76,3 +76,6 @@ oracle/outgoing_driver.pdb
 oracle/session_driver
 oracle/session_driver.exe
 oracle/session_driver.pdb
+oracle/loop_driver
+oracle/loop_driver.exe
+oracle/loop_driver.pdb

@@ -180,6 +180,9 @@ fn status(result: &Result<(), ClientError>) -> &'static str {
         Err(ClientError::StatusConnected) => "StatusConnected",
         Err(ClientError::PublishRetrieveFailed) => "PublishRetrieveFailed",
         Err(ClientError::NoDataAvailable) => "NoDataAvailable",
+        Err(ClientError::NeedMoreBytes) => "NeedMoreBytes",
+        Err(ClientError::EventCallbackFailed) => "EventCallbackFailed",
+        Err(ClientError::KeepAliveTimeout) => "KeepAliveTimeout",
         Err(ClientError::State(_)) => "StateError",
     }
 }
@@ -350,7 +353,7 @@ fn rust_arm() -> String {
         let mut incoming = [Record::default(); 4];
 
         let mut client = MqttContext::new(&mut buffer);
-        client.enable_qos(&mut outgoing, &mut incoming, 0);
+        client.enable_qos(&mut outgoing, &mut incoming, &mut []);
 
         // AFTER `enable_qos`, because that zeroes the arrays — exactly as
         // `MQTT_InitStatefulQoS` does, which is why the C driver seeds after

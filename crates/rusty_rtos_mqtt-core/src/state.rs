@@ -640,6 +640,12 @@ impl<'a> PublishRecords<'a> {
         self.outgoing
     }
 
+    /// Both arrays at once. See
+    /// [`MqttContext::records_mut`](crate::client::MqttContext::records_mut).
+    pub fn both_mut(&mut self) -> (&mut [Record], &mut [Record]) {
+        (self.outgoing, self.incoming)
+    }
+
     /// Empty the incoming array.
     pub fn clear_incoming(&mut self) {
         self.incoming.fill(Record::default());

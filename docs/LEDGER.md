@@ -951,6 +951,57 @@ session and 0 in a packet, so assigning one to the other would have capped every
 publish at QoS 0 whenever a broker left the property out. The merge is written
 out instead, field by field, gated on `fields_present`.
 
+## Conformance (2026-09-19) — the receive loop
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **52 / 52** | `cargo test -p rusty_rtos_mqtt-core --test loop`. C arm: `oracle/loop_driver.c` driving `core_mqtt.c` verbatim from v5.0.2 at `04845c6a`. |
+| what is compared per case | **the status, both call logs, the bytes that went back, the BUFFER INDEX, the connection, both record arrays, the store's keys, and every packet the CALLBACK was handed** | the callback is the third input, and a status alone cannot see it. |
+| poison rows | **38 introduced, 35 caught** | the three that remain share one cause, pinned by `three_poisons_are_dead_because_the_state_owes_nothing`. |
+
+**This finishes `core_mqtt.c`: 60 of 60.**
+
+**A process loop has THREE inputs.** The transport, the clock, and the
+application callback — which decides whether the packet was accepted, what
+reason code the acknowledgement carries, and whether it carries properties. So
+the callback is scripted and every packet it is handed is logged, and two of the
+findings below came out of that log rather than out of any status.
+
+**An acknowledgement with properties and no reason code is never sent.** The C's
+sentinel for "the application set none" is `0xFF`, and
+`validatePublishAckReasonCode`'s switch has no case for it, so it falls to the
+default and answers `MQTTBadParameter`. One Reason String added for diagnostics
+is enough to reach that path: `qos1-with-property` sends **nothing**, and
+`qos1-with-reason` — the same publish with a reason code as well — sends the
+PUBACK. Drafted for upstream.
+
+**And a field that reads differently every run is not a value.** The callback
+log's last column is how many reason codes the application was handed; for a
+PUBLISH and a PINGRESP it is `?`, because two of the four places that build a
+`MQTTDeserializedInfo_t` declare it with no initialiser and fill in three of its
+four members. This harness printed `1634086262`, `1852383280`, `1633889585` and
+`1769418033` for the same input before that was noticed. CWE-457, drafted.
+
+**A poison found an infidelity in our own arm.** "The property buffer is never
+emptied" would not fire, because this crate's `AckReply` started a fresh
+`PropertyBuilder` on every callback where the C's builder lives in the context
+and its index SURVIVES. The two agreed only because the C resets. Fixed by
+giving the builder a `resume`, which makes the reset load-bearing — and the
+poison then fired. **A poison that cannot fail is sometimes telling you about
+the arm it is poisoning.**
+
+**Three poisons are dead and share one cause.** A QoS 0 publish and a PUBACK
+both leave the state machine owing nothing, so `getAckTypeToSend` answers zero
+and the explicit guards above it are belt-and-braces; and `timeElapsed != 0 &&
+timeElapsed >= PACKET_RX_TIMEOUT_MS` already excludes zero in its second half.
+None is a workload gap and no case can make them fire, so they are pinned in
+terms of the states and the constant instead.
+
+**Two packets in one read are both handled**, and the gap that hid it: the
+original pair differed only in their topic, which the callback log does not
+record, so a loop that handled the first one twice looked right. Giving them
+different packet identifiers made three poisons fail at once.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -966,7 +1017,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 193 passed, 0 failed (97 unit, 15 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client, 3 send, 4 outgoing, 4 session) |
+| `cargo test -p rusty_rtos_mqtt-core` | 199 passed, 0 failed (99 unit, 15 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic, 3 client, 3 send, 4 outgoing, 4 session, 4 loop) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -985,9 +1036,9 @@ the only place the number comes from; `--check` fails if the list names a
 function the pinned source does not have.
 
 ```
-functions      203 / 218    93.1 %
-function lines 11739 / 13066  89.8 %
-all lines      11739 / 15643  75.0 %   (2577 lines are preamble and cannot be remade)
+functions      216 / 218    99.1 %
+function lines 12901 / 13066  98.7 %
+all lines      12901 / 15643  82.5 %   (2577 lines are preamble and cannot be remade)
 ```
 
 **The headline is the first line.** A function is the unit that can be
@@ -1003,13 +1054,12 @@ figure cannot reach 100 % however much is done.
 | `core_mqtt_serializer_private.c` | 15 / 15 |
 | `core_mqtt_prop_serializer.c` | 23 / 23 |
 | `core_mqtt_prop_deserializer.c` | 31 / 31 |
-| `core_mqtt.c` | 47 / 60 |
+| `core_mqtt.c` | 60 / 60 |
 
 The two outstanding in `core_mqtt_serializer.c` are `logConnackResponse` and
 `logAckResponse`: `static void`s of `LogError` calls with no observable
 behaviour. They are counted as not written rather than claimed, because a remake
-that produces no log line has not remade a logger. The 13 outstanding in
-`core_mqtt.c` are the receive loop and the acknowledgement handling.
+that produces no log line has not remade a logger. `core_mqtt.c` is finished.
 
 **This replaces the earlier figure, which was wrong.** Until 2026-09-18 this
 table divided a hand-maintained sum of per-slice line counts by all 15,643

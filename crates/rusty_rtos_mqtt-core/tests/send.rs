@@ -123,6 +123,9 @@ fn status(result: Result<(), ClientError>) -> &'static str {
         Err(ClientError::StatusConnected) => "StatusConnected",
         Err(ClientError::PublishRetrieveFailed) => "PublishRetrieveFailed",
         Err(ClientError::NoDataAvailable) => "NoDataAvailable",
+        Err(ClientError::NeedMoreBytes) => "NeedMoreBytes",
+        Err(ClientError::EventCallbackFailed) => "EventCallbackFailed",
+        Err(ClientError::KeepAliveTimeout) => "KeepAliveTimeout",
         Err(ClientError::State(_)) => "StateError",
     }
 }

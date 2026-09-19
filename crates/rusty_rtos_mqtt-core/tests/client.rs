@@ -82,6 +82,9 @@ fn status(result: Result<(), ClientError>) -> &'static str {
         Err(ClientError::StatusConnected) => "StatusConnected",
         Err(ClientError::PublishRetrieveFailed) => "PublishRetrieveFailed",
         Err(ClientError::NoDataAvailable) => "NoDataAvailable",
+        Err(ClientError::NeedMoreBytes) => "NeedMoreBytes",
+        Err(ClientError::EventCallbackFailed) => "EventCallbackFailed",
+        Err(ClientError::KeepAliveTimeout) => "KeepAliveTimeout",
         Err(ClientError::State(_)) => "StateError",
     }
 }
@@ -234,8 +237,13 @@ fn our_trace() -> String {
                 let mut buffer = [0u8; 256];
                 let mut outgoing_records = vec![Record::default(); outgoing];
                 let mut incoming_records = vec![Record::default(); incoming];
+                let mut ack_properties = vec![0u8; properties];
                 let mut client = MqttContext::new(&mut buffer);
-                client.enable_qos(&mut outgoing_records, &mut incoming_records, properties);
+                client.enable_qos(
+                    &mut outgoing_records,
+                    &mut incoming_records,
+                    &mut ack_properties,
+                );
 
                 let _ = writeln!(
                     out,
@@ -305,7 +313,7 @@ fn our_trace() -> String {
                 let mut client = MqttContext::new(&mut buffer);
 
                 if stateful {
-                    client.enable_qos(&mut outgoing_records, &mut incoming_records, 0);
+                    client.enable_qos(&mut outgoing_records, &mut incoming_records, &mut []);
                 }
 
                 client.properties.server.wildcard_available = wildcard;
@@ -357,7 +365,7 @@ fn our_trace() -> String {
                 let mut client = MqttContext::new(&mut buffer);
 
                 if stateful {
-                    client.enable_qos(&mut outgoing_records, &mut incoming_records, 0);
+                    client.enable_qos(&mut outgoing_records, &mut incoming_records, &mut []);
                 }
 
                 // `payload=0/5` is the C's non-null-length-with-a-null-pointer

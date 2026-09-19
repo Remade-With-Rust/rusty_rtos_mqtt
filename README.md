@@ -96,11 +96,13 @@ lives.
 - **Proven**: `MQTT_Connect` end to end — the CONNECT, the wait for a CONNACK
   with both of its timeouts, what the CONNACK does to every limit in the
   context, and what a clean or resumed session owes the retransmit store.
+- **Proven**: the receive loop and every handler under it, against a scripted
+  **application callback** as well as a scripted transport and clock — the
+  reassembly, the acknowledgements in both directions, and the keep alive.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps: 15 functions, all but two of them in `core_mqtt.c`.** What is
-left is the receive loop and the acknowledgement handling — and
+**Known gaps: 2 functions, and `core_mqtt.c` is finished.** What is left is
 `core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
 does not have. Everything else is remade: this crate can build and read every
 MQTT packet, off a socket or out of a buffer, and assemble, check and walk back
@@ -138,9 +140,9 @@ validators — 36 of them sweeps — 56 lines finishing that file, which run the
 library's TWO header readers side by side, 73 lines across the MQTT 5 property
 builders, 55 across the property reader, 109 across topic matching and 41
 across the client context, 29 across the send plumbing, 59 across the outgoing
-packets and 39 across opening a connection — all at the pinned v5.0.2. **203 of
-coreMQTT's 218 functions, 93.1 %**, counted by `oracle/coverage.py` from the
-pinned source. 193 tests. **This crate reads every packet a broker can send, off a socket or
+packets, 39 across opening a connection and 52 across the receive loop — all at
+the pinned v5.0.2. **216 of coreMQTT's 218 functions, 99.1 %**, counted by
+`oracle/coverage.py` from the pinned source. 199 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1568,6 +1570,51 @@ PUBRELs to clear. The answer is always none.
 the resumed case beneath it re-sends exactly that record, which is what makes
 the first a defect rather than an empty array. Reproduced, and drafted for
 upstream.
+
+## The receive loop
+
+**52 trace lines agree with `core_mqtt.c`** — `MQTT_ProcessLoop`,
+`MQTT_ReceiveLoop`, and every handler under them. This is the last of
+`core_mqtt.c`, and the only part of the library that **reassembles**: a read can
+deliver half a packet, two packets, or a packet and a half.
+
+### Three inputs, not two
+
+A process loop is driven by the transport, the clock, **and the application
+callback** — which decides whether the packet was accepted, what reason code
+the acknowledgement carries, and whether it carries properties. So the callback
+is scripted too, and every packet it is handed is logged.
+
+### An acknowledgement with properties and no reason code is never sent
+
+The C's sentinel for "the application set no reason code" is `0xFF`, and the
+reason-code validator has no case for it. Adding one Reason String to a PUBACK
+is enough to reach that validator, so a diagnostic property silently costs the
+acknowledgement:
+
+```
+qos1-with-property   -> BadParameter   nothing sent
+qos1-with-reason     -> Success        40 04 00 05 00 00
+```
+
+The broker never hears about the publish and the handshake stalls. Reproduced,
+and drafted for upstream.
+
+### And a field that is different every run is not a value
+
+The callback log's last column is how many reason codes the application was
+handed. For a PUBLISH and a PINGRESP it reads `?`, because two of the four
+places that build a `MQTTDeserializedInfo_t` leave `pReasonCode` uninitialised —
+this harness printed four different large numbers before that was noticed. Also
+drafted.
+
+### Keep alive is checked only when nothing arrived
+
+It hangs off "the read returned zero bytes", not off the clock, so a busy
+connection never pings however stale its transmit time is —
+`keepalive-rx-timeout` sends a PINGREQ and
+`keepalive-not-checked-when-busy`, with the same stale time and one packet to
+read, does not.
 
 ## The gate
 
