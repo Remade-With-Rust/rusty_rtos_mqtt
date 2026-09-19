@@ -685,6 +685,56 @@ that was too SMALL would show immediately. It is the reason the slip that
 overflows `addPropUtf8` cannot overflow anything in this crate. Pinned by
 `no_budget_error_can_read_past_the_section`.
 
+## Conformance (2026-09-18) — topic matching
+
+| quantity | value | method |
+|---|---|---|
+| trace lines agreeing with the C | **109 / 109** | `cargo test -p rusty_rtos_mqtt-core --test topic`. C arm: `oracle/topic_driver.c` driving `core_mqtt.c` verbatim from v5.0.2 at `04845c6a`. |
+| the grid | **39 x 39 = 1,521 pairs, PRINTED** | every string over `{a, /, +}` to length three, as a matrix of which filter matches which topic. |
+| the sweep | **1,554 x 1,554 = 2,414,916 pairs** | every string over `{a, b, /, +, #, $}` to length four, digested. Both wildcards and the `$` rule are in that alphabet. |
+| named cases | **48** | the specification's own examples from §4.7.1.2, §4.7.1.3 and §4.7.2, the empty-level probes, and wildcard characters out of position. |
+| poison rows | **13 introduced, 12 caught** | the one that could not fire is the `strncmp` fast path. |
+
+**A divergence from MQTT 5.0, and the grid showed it as a column.** A filter
+whose last level is `+` stops matching a topic whose last level is empty, once
+an earlier `+` has been used — `a/+` matches `a/`, and `+/+` does not. §4.7.1.3
+makes `+` match exactly one level and §4.7.3 makes an empty level a legal one, so
+a client subscribed to `+/+` silently never receives a message published to
+`a/`. Row `a/+` has a `1` in the `a/` column; row `+/+` has a `.`. Drafted in
+`kairos-upstream/drafts/coremqtt-topic-filter-empty-last-level.md`, with the
+missing `MQTTEndOfProperties` entry in `MQTT_Status_strerror`.
+
+**A grid is to a string algorithm what a printed accepted set is to a table.**
+Every sweep in this package so far walks one byte over 256 values and prints
+what it accepted, because a digest says a table changed and a printed set says
+which entry moved. Matching takes two strings, so the same idea needs two
+dimensions — and the payoff was the same: the defect is a **pattern** in the
+matrix rather than a case somebody had to suspect first.
+
+**The guard, twenty-fifth shape: a grid must vary in both directions.** A
+matrix is only an instrument if it is not constant. A matcher that refused
+everything would still give a diagonal, because every filter is a legal topic
+name and matches itself by the exact path; one that accepted everything would
+give a solid block. Both would still be compared, and neither would prove
+anything. `the_grid_varies_in_both_directions` asserts the diagonal is present,
+that no row is solid, and that the wildcard rows are substantially fuller than
+the literal ones.
+
+**And one thing the sweep caught in our own arm.**
+`MQTT_GetPacketTypeString` matches PUBLISH on its **nibble** — the low four bits
+are its QoS, DUP and RETAIN flags — and every other type on the **whole byte**,
+because a PUBREL's reserved bit must be set and `0x60` is malformed rather than
+a PUBREL. The first transcription used the whole byte throughout, which is the
+tidier-looking rule and wrong for sixteen values; the 256-value digest failed on
+the first run. Recorded because the asymmetry is the kind a reader smooths out.
+
+**The silent poison, and what it proved.** Deleting the `strncmp` fast path in
+`MQTT_MatchTopic` changed no answer anywhere in the differential: the general
+walk matches every string against itself without help, over all 780 strings up
+to length four. So the shortcut is what its name says — an optimisation, not a
+rule — which is worth knowing, because it looks at first like the only reason a
+filter containing a literal `+` can match at all.
+
 ## The gate (2026-09-17)
 
 The packet ids driving this module come from the broker, so they are
@@ -700,7 +750,7 @@ attacker-chosen even though no bytes are parsed here.
 
 | gate | result |
 |---|---|
-| `cargo test -p rusty_rtos_mqtt-core` | 157 passed, 0 failed (81 unit, 13 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread) |
+| `cargo test -p rusty_rtos_mqtt-core` | 168 passed, 0 failed (88 unit, 13 gate, 3 state, 5 header, 5 property, 5 writer, 3 size, 3 ack, 3 connack, 4 publish, 4 disconnect, 3 connect, 3 outpublish, 4 outbound, 3 reader, 4 validate, 3 context, 5 propbuild, 3 propread, 4 topic) |
 | `cargo clippy --all-targets --all-features` under the workspace lint policy | clean, 0 warnings |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target thumbv7em-none-eabihf` | passes |
 | `cargo build -p rusty_rtos_mqtt --no-default-features --target riscv32imac-unknown-none-elf` | passes |
@@ -731,8 +781,9 @@ A count that belongs here because the README's honesty depends on it.
 | `core_mqtt_prop_serializer.c` | 1,176 | **remade and proven** |
 | `core_mqtt_prop_deserializer.c` | 880 | **remade and proven** |
 
-| `core_mqtt.c` | 5,618 | not written |
-| **total** | **15,643** (plus 5,459 of headers) | **57.5 % remade** |
+| `core_mqtt.c`, topic matching and the naming tables | 581 | **remade and proven** |
+| `core_mqtt.c`, the rest | 5,037 | not written |
+| **total** | **15,643** (plus 5,459 of headers) | **61.2 % remade** |
 
 The CONNACK row excludes `logConnackResponse`'s 102 lines, which are a `static
 void` of `LogError` calls with no observable behaviour. They are counted as not

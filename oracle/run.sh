@@ -211,3 +211,17 @@ cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
 
 "$here/propread_driver" > "$here/propread.trace"
 echo "wrote $(wc -l < "$here/propread.trace") lines to $here/propread.trace"
+
+# The topic-matching differential's C arm: the part of `core_mqtt.c` that needs
+# no transport -- the matcher, the two ack reason-code getters and the two
+# tables that name things. This one links `core_mqtt.c` itself.
+core="$lib/source/core_mqtt.c"
+
+cc -O2 -g -w -DMQTT_DO_NOT_USE_CUSTOM_CONFIG \
+   -I "$lib/source/include" \
+   -I "$lib/source/interface" \
+   -o "$here/topic_driver" \
+   "$core" "$src" "$ser" "$priv" "$props" "$propd" "$here/topic_driver.c"
+
+"$here/topic_driver" > "$here/topic.trace"
+echo "wrote $(wc -l < "$here/topic.trace") lines to $here/topic.trace"

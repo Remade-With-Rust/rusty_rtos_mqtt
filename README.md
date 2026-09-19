@@ -80,11 +80,15 @@ lives.
 - **Proven**: the MQTT 5 property reader, all of
   `core_mqtt_prop_deserializer.c` — twenty-two getters that each demand one
   identifier, and two tables over one alphabet that, this time, agree.
+- **Proven**: topic matching, the first slice of `core_mqtt.c` — swept as a
+  printed 39 × 39 **grid** plus 2.4 million digested pairs, which showed a
+  wildcard filter silently missing a whole class of topic.
 - **Zero allocation**: two caller-supplied arrays, sized independently, exactly
   as the C does it. `forbid(unsafe)`.
 
-**Known gaps, and one of them is now the only big one.** The connection state
-machine (`core_mqtt.c`, 5,618 lines) is **not written**, and neither are
+**Known gaps, and one of them is now the only big one.** Most of the connection
+state machine (`core_mqtt.c`, 5,037 of its 5,618 lines) is **not written**, and
+neither are
 `core_mqtt_serializer.c`'s two logging functions, which need a logger this crate
 does not have. Everything else is remade: this crate can build and read every
 MQTT packet, off a socket or out of a buffer, and assemble, check and walk back
@@ -120,9 +124,9 @@ SUBSCRIBE, UNSUBSCRIBE, the acknowledgements and PINGREQ, 20 lines comparing
 the transport reader CALL FOR CALL, 94 lines across the six outgoing property
 validators — 36 of them sweeps — 56 lines finishing that file, which run the
 library's TWO header readers side by side, 73 lines across the MQTT 5 property
-builders and 55 across the property reader — all at the pinned v5.0.2. **57.5 %
-of the library: everything but the connection state machine and two logging
-functions.** 157 tests. **This crate reads every packet a broker can send, off a socket or
+builders, 55 across the property reader and 109 across topic matching — all at
+the pinned v5.0.2. **61.2 % of the library: everything but most of the
+connection state machine and two logging functions.** 168 tests. **This crate reads every packet a broker can send, off a socket or
 out of a buffer, and writes every packet a client can send** — the whole wire
 codec; what is missing is the connection state machine that drives it.
 
@@ -1308,6 +1312,61 @@ guarantee.** A budget one byte too generous, and a cursor allowed to sit exactly
 on the end, both change no answer, because the read that follows is bounded by
 the slice as well as by the arithmetic. Pinned by a sweep of every getter
 against every truncation of a section, from every starting position.
+
+## Topic matching
+
+**109 trace lines agree with `core_mqtt.c`** — the first slice of the connection
+machine, and the part of it that needs no connection.
+
+A client that subscribes to `sport/+` and then receives a PUBLISH for
+`sport/tennis` has to decide which callback the message belongs to. That
+decision is a **string** algorithm, so the sweep is the usual one a dimension
+up: every string over `{a, /, +}` to length three — 39 of them — as a 39 × 39
+grid of which filter matches which topic, printed into the trace.
+
+```
+grid-strings a / + aa a/ a+ /a // /+ +a +/ ++ aaa aa/ aa+ a/a a// a/+ ...
+grid-row a/+ ....1..........1.1.....................
+grid-row +/+ ......1.1.1....1.1...1.1.........1.1...
+```
+
+Then `{a, b, /, +, #, $}` to length four: 2,414,916 pairs, digested.
+
+### A divergence from MQTT 5.0, visible as a column
+
+Row `a/+` has a `1` in the `a/` column. Row `+/+` has a `.` in it.
+
+**A filter whose last level is `+` stops matching a topic whose last level is
+empty, once an earlier `+` has been used.** The specification's own example —
+`sport/+` against `sport/` — works, which is what makes this a defect rather
+than a design:
+
+```
+a/    against  a/+     matches
+a/    against  +/+     does NOT match
+/     against  +/+     does NOT match
+a//   against  a/+/+   does NOT match
+```
+
+A client subscribed to `+/+` silently never receives messages published to `a/`.
+No error is raised anywhere. A grid is to a string algorithm what a printed
+accepted set is to a table — this was a **pattern**, not a case anyone had to
+think to write. Drafted in `docs/upstream/`, along with the missing
+`MQTTEndOfProperties` entry in `MQTT_Status_strerror`.
+
+### One thing the sweep caught in our own arm
+
+`MQTT_GetPacketTypeString` matches **PUBLISH on its nibble** — the low four bits
+carry QoS, DUP and RETAIN — and everything else on the **whole byte**, because a
+PUBREL's reserved bit must be set and `0x60` is a malformed packet rather than a
+PUBREL. The first transcription used the whole byte for all of them, which is
+the tidier-looking rule, and the 256-value digest caught it immediately.
+
+### Poison-proven on thirteen behaviours, twelve caught
+
+The one that could not fire is the `strncmp` fast path: deleting it changes no
+answer, because the general walk matches every string against itself unaided.
+Pinned over all 780 strings up to length four.
 
 ## The gate
 

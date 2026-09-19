@@ -77,6 +77,9 @@ pub mod builder;
 /// Walking a property section back, one property at a time.
 pub mod cursor;
 
+/// Does this topic name match that topic filter?
+pub mod topic;
+
 pub use ack::{
     AckError, AckInfo, Limits, PINGRESP_REMAINING_LENGTH, PUBREL, PacketInfo, deserialize_ack,
 };
@@ -121,6 +124,9 @@ pub use size::{
 pub use state::{
     AckType, Cursor, Operation, PACKET_ID_INVALID, PublishRecords, PublishState, QoS, Record,
     StateError, calculate_state_ack, calculate_state_publish,
+};
+pub use topic::{
+    TopicError, matches, packet_type_name, status_name, suback_status_codes, unsuback_status_codes,
 };
 pub use validate::{
     ConnectValidation, ValidateError, validate_connect_properties, validate_publish_ack_properties,

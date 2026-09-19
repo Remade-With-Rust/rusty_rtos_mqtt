@@ -1,6 +1,6 @@
 [package]
 name = "rusty_rtos_mqtt-core"
-description = "The pure no_std core of rusty_rtos_mqtt: the QoS publish state machine, the fixed-header codec, the MQTT 5 property primitives, the outgoing-packet writers, the packet-size calculators, the acknowledgement deserializers, the CONNACK, the incoming PUBLISH, the DISCONNECT, the CONNECT, the outgoing PUBLISH, the rest of the outgoing wire codec, both transport readers, the six outgoing property validators, the connection context every limit lives in and the MQTT 5 property builders and reader, with no CPU, no allocator and no operating system. forbid(unsafe)."
+description = "The pure no_std core of rusty_rtos_mqtt: the QoS publish state machine, the fixed-header codec, the MQTT 5 property primitives, the outgoing-packet writers, the packet-size calculators, the acknowledgement deserializers, the CONNACK, the incoming PUBLISH, the DISCONNECT, the CONNECT, the outgoing PUBLISH, the rest of the outgoing wire codec, both transport readers, the six outgoing property validators, the connection context every limit lives in and the MQTT 5 property builders and reader and the topic matcher, with no CPU, no allocator and no operating system. forbid(unsafe)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
