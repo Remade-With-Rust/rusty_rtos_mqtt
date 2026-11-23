@@ -48,7 +48,7 @@ rusty_rtos_mqtt-core = { path = "crates/rusty_rtos_mqtt-core", version = "0.2.0"
 # the package would build against the PUBLISHED core while every sibling
 # built against the local one. The v0.1.0 release pass removed these from
 # the existing packages and missed the template.
-rusty_rtos_core = { version = "0.2.0", default-features = false }
+rusty_rtos_core = { version = "0.2.8", default-features = false }
 
 [profile.release]
 # use-protection-please H-05: overflow checks stay on in release; LTO and
